@@ -1,0 +1,25 @@
+[project]
+name = "myproject"
+version = "0.0.0"
+description = "Fixture project proving the deep-module boundary rules hold."
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    # Compatible-minor pin: patches flow, a breaking minor does not. tach is
+    # pre-1.0, so this is what stops a release changing what the repo enforces.
+    "tach~=0.35.0",
+    "pytest~=8.3",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
