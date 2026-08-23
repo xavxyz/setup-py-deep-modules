@@ -15,14 +15,14 @@ from __future__ import annotations
 
 import re
 
-from conftest import Fixture
+from conftest import Project
 
 GLOBBED_MODULE_BLOCK = '[[modules]]\npath = "myproject.*"\n'
 
 CYCLIC_IMPORT = "from myproject.notifications import invoice_ready  # noqa: F401"
 
 
-def _package_names(project: Fixture) -> list[str]:
+def _package_names(project: Project) -> list[str]:
     """The immediate subpackages of the root package -- the deep-module tier."""
     root = project.root / "src" / "myproject"
     return sorted(
@@ -32,17 +32,22 @@ def _package_names(project: Fixture) -> list[str]:
     )
 
 
-def _materialise_dependency_graph(project: Fixture) -> None:
+def _materialise_dependency_graph(project: Project) -> None:
     """Expand the globbed module into one block per package, then let tach sync
     fill in the dependencies it can see."""
+    config = project.read("tach.toml")
+    assert GLOBBED_MODULE_BLOCK in config, (
+        "tach.toml no longer contains the globbed module block this expansion "
+        "rewrites; update GLOBBED_MODULE_BLOCK to match."
+    )
     expanded = "\n".join(
         f'[[modules]]\npath = "myproject.{name}"\n' for name in _package_names(project)
     )
-    project.write("tach.toml", project.read("tach.toml").replace(GLOBBED_MODULE_BLOCK, expanded))
+    project.write("tach.toml", config.replace(GLOBBED_MODULE_BLOCK, expanded))
     assert project.sync().passed
 
 
-def test_a_cycle_between_two_packages_fails_the_check(project: Fixture) -> None:
+def test_a_cycle_between_two_packages_fails_the_check(project: Project) -> None:
     project.append("src/myproject/billing/_internal/_tax.py", CYCLIC_IMPORT)
     _materialise_dependency_graph(project)
 
@@ -50,17 +55,17 @@ def test_a_cycle_between_two_packages_fails_the_check(project: Fixture) -> None:
 
     assert not result.passed
     assert re.search(r"[Cc]ircular dependency", result.output)
-    assert result.names("myproject.billing")
-    assert result.names("myproject.notifications")
+    assert result.mentions("myproject.billing")
+    assert result.mentions("myproject.notifications")
 
 
-def test_the_acyclic_fixture_still_passes_once_the_graph_is_materialised(project: Fixture) -> None:
+def test_the_acyclic_fixture_still_passes_once_the_graph_is_materialised(project: Project) -> None:
     _materialise_dependency_graph(project)
 
     assert project.check().passed
 
 
-def test_the_globbed_config_alone_does_not_see_a_real_cycle(project: Fixture) -> None:
+def test_the_globbed_config_alone_does_not_see_a_real_cycle(project: Project) -> None:
     """Pins the tach behaviour that forces the extra step above.
 
     If this test starts failing, tach has begun checking cycles against real

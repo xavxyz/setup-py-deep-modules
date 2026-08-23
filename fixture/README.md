@@ -15,6 +15,7 @@ src/myproject/
   app.py                      loose application code -- no interface required
   billing/
     __init__.py               the public surface: named re-exports + __all__
+    quote.py                  a further public entry point -- no leading _
     _internal/                everything else, unreachable from outside
       _invoice.py
       _money.py
@@ -29,6 +30,11 @@ tests/                        top-level, and bound by the same rule
 `billing/__init__.py` is the whole of what a consumer -- human or agent -- needs
 to read to use the package. Reaching past it fails `tach check`, so that reading
 can be trusted.
+
+A package may have more than one public entry point: `billing/quote.py` is public
+for the same reason `__init__.py` is, namely that its name does not start with an
+underscore. Being inside the package, it may use `_internal` freely -- the rule
+governs crossing a boundary, not working within one.
 
 ## Running the proof
 
