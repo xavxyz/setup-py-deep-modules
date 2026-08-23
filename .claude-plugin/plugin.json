@@ -1,6 +1,6 @@
 {
   "name": "setup-py-deep-modules",
-  "description": "Enforce deep modules in a Python repo: every package hides its implementation behind a small public interface, checked mechanically by tach.",
+  "description": "Wire tach into a Python repo so each package hides its implementation behind a small public interface, reachable only through names without a leading underscore.",
   "version": "0.1.0",
   "author": {
     "name": "Xavier Cazalot"

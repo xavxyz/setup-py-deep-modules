@@ -10,9 +10,9 @@ Someone arriving at `payments/` — a person or an agent — should learn everyt
 
 The idea being enforced here is the **deep module**: a lot of behaviour behind a small interface. A module's **interface** is everything a caller must know to use it; its **depth** is the ratio of the behaviour it provides to the size of that interface. A deep module is one where that ratio is high — a small surface, a lot behind it. A shallow one has an interface nearly as large as its implementation, so it hides nothing and buys nothing. The term is John Ousterhout's, from *A Philosophy of Software Design* (2018).
 
-That paragraph is all the vocabulary this skill needs. If the `codebase-design` skill is installed, call it and use its language throughout; if it is not, carry on — nothing here depends on it.
+That paragraph is all the vocabulary this skill needs. If the `codebase-design` skill is installed, call it and use its language throughout.
 
-This skill installs [tach](https://github.com/tach-org/tach) and writes a config that makes the boundary mechanical: a package's public surface is every name that does **not** start with an underscore, and `tach check` fails on any import that reaches past it. Then it proves the rule bites by watching the check fail on a real violation, before telling you it works.
+The plan is to make that boundary mechanical with [tach](https://github.com/tach-org/tach): a package's public surface is every name that does **not** start with an underscore, and `tach check` fails on any import that reaches past it. The mechanics are not wired up yet — see [What this skill will do](#what-this-skill-will-do) for what running it does today.
 
 ## The shape this enforces
 
@@ -27,7 +27,7 @@ src/myproject/
 tests/              ← at the repo root; goes through the interfaces like any other caller
 ```
 
-Four rules, all checked by `tach check`:
+Four rules, all to be checked by `tach check`:
 
 1. **Public means no underscore.** Code outside a package may import `myproject.payments` and `myproject.payments.client`, never `myproject.payments._lib` or anything inside it. The rule is generic: adding a package, or a private folder inside one, never means editing the config.
 2. **Freedom inside.** A package's own modules import each other however they like. The rule constrains what crosses the package boundary, not how the implementation behind it is arranged.
@@ -47,4 +47,4 @@ The steps below are the plan, not yet the implementation. Invoked today, this sk
 5. **Prove.** Run the check clean, add an import that reaches past an interface (it must fail), revert. Observing the failure is the completion criterion.
 6. **Document.** Write the convention README next to the code it governs, and add a one-line pointer to `CLAUDE.md` or `AGENTS.md`.
 
-Report the plan to the user, name the repo details you detected in step 1 if you can read them cheaply, and say that the remaining steps are not wired up yet.
+Invoked today: report this plan to the user, say the steps are not wired up yet, and stop.
