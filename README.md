@@ -31,24 +31,24 @@ wiring dependency-cruiser into a repo so a package can only be imported through
 its entry points. This repo is a port of that idea to Python, using
 [tach](https://github.com/tach-org/tach).
 
-Run the skill once, and the public surface of every package becomes exactly the
+Run the skill once, and the public surface of every package will be exactly the
 names that do not start with an underscore — checked by a tool, not by
-willpower. An agent can then understand a package by reading one file, and can
-trust that reading, because `tach check` fails if anything reaches past it.
+willpower. An agent will then be able to understand a package by reading one
+file, and to trust that reading, because `tach check` fails if anything reaches
+past it.
 
 ## Install
 
-In Claude Code:
+One command, in Claude Code:
 
 ```
 /plugin marketplace add xavxyz/setup-py-deep-modules
 ```
 
-Then install the plugin from that marketplace and invoke it in your Python
-repo:
+That adds the marketplace and offers the plugin for install. Then, in your
+Python repo:
 
 ```
-/plugin install setup-py-deep-modules@setup-py-deep-modules
 /setup-py-deep-modules
 ```
 
@@ -62,12 +62,14 @@ repo:
 
 ```
 src/myproject/
-  app.py                      loose application code — no interface required
+  app.py                      application code (tach's "<root>" module)
   billing/
     __init__.py               the public surface: named re-exports + __all__
+    quote.py                  an additional entry point — no leading underscore
     _internal/                everything else, unreachable from outside
       _invoice.py
       _money.py
+      _tax.py
       _totals.py
   notifications/
     __init__.py               uses billing through its public surface only
@@ -76,7 +78,10 @@ tests/                        top-level, and bound by the same rule
 tach.toml
 ```
 
-`billing/__init__.py` is the whole of what a caller needs to read:
+`billing/__init__.py` is the whole of what a caller needs to read — plus
+`quote.py`, if the package wants a second entry point. Inside `_internal/`,
+the modules import each other however they like; the rule constrains what
+crosses the package boundary, not how the implementation behind it is arranged.
 
 ```python
 """Invoice pricing."""
@@ -92,15 +97,35 @@ __all__ = ["Invoice", "LineItem", "format_amount", "total_due"]
 
 ```python
 from myproject.billing import Invoice, LineItem   # fine
-from myproject.billing._internal._tax import vat  # fails tach check
+from myproject.billing._internal._tax import rate_for  # fails tach check
 ```
 
 The rule is generic, so adding a package — or a private folder inside an
-existing one — never means editing the config:
+existing one — never means editing the config. The decision-carrying part of
+`tach.toml`:
 
 ```toml
+source_roots = ["src", "tests"]
+
+# tach's default exclude list contains "**/tests". Restating the list without
+# it is what puts the top-level test suite under the same rule as any other
+# consumer.
+exclude = ["**/*__pycache__", "**/*egg-info", "**/docs", "**/venv", "**/.venv"]
+
+forbid_circular_dependencies = true
+
+# Code outside every package — the top-level tests, and loose modules sitting
+# at the root package level — belongs to tach's "<root>" module. Declared with
+# no `depends_on`, so it may use any package while still being bound by every
+# package's interface.
+root_module = "allow"
+
+# Every immediate subpackage of the root package is a deep module.
 [[modules]]
 path = "myproject.*"
+
+[[modules]]
+path = "<root>"
 
 # No `from` key, so every module adopts this interface. A name is importable
 # from outside its package only if every segment of its path starts with
