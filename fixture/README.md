@@ -25,6 +25,7 @@ src/myproject/
     __init__.py               uses billing through its public surface only
     _internal/_templates.py
 tests/                        top-level, and bound by the same rule
+scripts/check_cycles.py       rejects import cycles between packages
 ```
 
 `billing/__init__.py` is the whole of what a consumer -- human or agent -- needs
@@ -40,8 +41,9 @@ governs crossing a boundary, not working within one.
 
 ```sh
 uv pip install -r pyproject.toml --extra dev
-tach check     # from this directory
-pytest         # the fixture's own tests, written against the interfaces
+tach check                       # from this directory
+python scripts/check_cycles.py   # no cycles between packages
+pytest                           # the fixture's own tests, via the interfaces
 ```
 
 The full pass/fail/pass proof lives in `../tests/`, and runs against throwaway
@@ -60,10 +62,15 @@ without that entry, which is what puts tests under the same rule as any other
 consumer.
 
 **`forbid_circular_dependencies` checks the graph declared in `tach.toml`, not
-the one the imports actually form.** Under the generic globbed `[[modules]]`
-block nothing is declared, so on its own the setting never fires. The proof
-suite materialises the graph first -- expanding the glob and running `tach sync`
-against a scratch copy -- which is what makes cycles fail. That step needs
-nothing from the user beyond the directory listing, but it is a step, and
-`tests/test_cycles.py` pins the tach behaviour that forces it so the scheduled
-run tells us if a release removes the need.
+the one the imports actually form.** The generic rule declares no `depends_on`
+at all -- that is the point of it -- so on its own the setting never sees a real
+cycle. It is left set because it starts holding the moment you fill in the
+layering stub, but it is not what rejects cycles today.
+
+`scripts/check_cycles.py` is. It reads the real graph from `tach map`, collapses
+it to the package tier and fails on any cycle, needing no per-package
+configuration of its own -- so the no-config-edits property survives. Run it
+alongside `tach check`; CI runs both.
+
+`tests/test_cycles.py` pins the tach behaviour that makes the extra command
+necessary, so the scheduled run tells us if a release removes the need for it.

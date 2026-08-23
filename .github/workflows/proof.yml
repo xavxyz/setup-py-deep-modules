@@ -31,6 +31,10 @@ jobs:
         working-directory: fixture
         run: tach check
 
+      - name: No import cycles between packages
+        working-directory: fixture
+        run: python scripts/check_cycles.py
+
       - name: The fixture's own tests pass through the interfaces
         working-directory: fixture
         run: pytest -q

@@ -8,6 +8,10 @@ source_roots = ["src", "tests"]
 # consumer: tests reach packages through their public surface, or not at all.
 exclude = ["**/*__pycache__", "**/*egg-info", "**/docs", "**/venv", "**/.venv"]
 
+# Note: this covers dependencies *declared* below via `depends_on`, which the
+# generic rule deliberately does not use. It is set so that it holds if you
+# later fill in the layering stub. Cycles between the real imports are caught by
+# `python scripts/check_cycles.py`, which reads the actual graph from `tach map`.
 forbid_circular_dependencies = true
 
 # Code outside every package -- the top-level tests, and loose modules sitting

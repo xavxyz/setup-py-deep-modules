@@ -52,8 +52,8 @@ class Project:
     def check(self) -> CommandResult:
         return self._run("tach", "check")
 
-    def sync(self) -> CommandResult:
-        return self._run("tach", "sync")
+    def check_cycles(self) -> CommandResult:
+        return self._run_script("scripts/check_cycles.py")
 
     def run_test_suite(self) -> CommandResult:
         return self._run("pytest", "-q")
@@ -79,8 +79,14 @@ class Project:
         return (self.root / relative_path).read_text()
 
     def _run(self, module: str, *args: str) -> CommandResult:
+        return self._invoke(["-m", module, *args])
+
+    def _run_script(self, relative_path: str) -> CommandResult:
+        return self._invoke([relative_path])
+
+    def _invoke(self, arguments: list[str]) -> CommandResult:
         completed = subprocess.run(
-            [sys.executable, "-m", module, *args],
+            [sys.executable, *arguments],
             cwd=self.root,
             capture_output=True,
             text=True,
