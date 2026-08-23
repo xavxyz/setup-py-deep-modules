@@ -1,0 +1,50 @@
+---
+name: setup-py-deep-modules
+description: Wire tach into a Python repo so each package hides its implementation behind a small public interface, reachable only through names without a leading underscore. User-invoked.
+disable-model-invocation: true
+---
+
+# Setup Py Deep Modules
+
+Someone arriving at `payments/` — a person or an agent — should learn everything the package offers by reading **one** file, and should be able to trust that reading. Python gives you no way to make that true: a leading underscore and a docstring are advisory, nothing fails when they are ignored, so over time they are ignored. Callers reach into internals, every file becomes load-bearing for every other, and the cost of understanding any single package grows without limit.
+
+The idea being enforced here is the **deep module**: a lot of behaviour behind a small interface. A module's **interface** is everything a caller must know to use it; its **depth** is the ratio of the behaviour it provides to the size of that interface. A deep module is one where that ratio is high — a small surface, a lot behind it. A shallow one has an interface nearly as large as its implementation, so it hides nothing and buys nothing. The term is John Ousterhout's, from *A Philosophy of Software Design* (2018).
+
+That paragraph is all the vocabulary this skill needs. If the `codebase-design` skill is installed, call it and use its language throughout; if it is not, carry on — nothing here depends on it.
+
+This skill installs [tach](https://github.com/tach-org/tach) and writes a config that makes the boundary mechanical: a package's public surface is every name that does **not** start with an underscore, and `tach check` fails on any import that reaches past it. Then it proves the rule bites by watching the check fail on a real violation, before telling you it works.
+
+## The shape this enforces
+
+```
+src/myproject/
+  app.py            ← app-tier code: unconstrained itself, still bound by every interface
+  payments/
+    __init__.py     ← THE public interface: named re-exports + __all__
+    client.py       ← an additional entry point (public: no leading underscore)
+    _lib/           ← implementation: private, free to import itself
+      impl.py
+tests/              ← at the repo root; goes through the interfaces like any other caller
+```
+
+Four rules, all checked by `tach check`:
+
+1. **Public means no underscore.** Code outside a package may import `myproject.payments` and `myproject.payments.client`, never `myproject.payments._lib` or anything inside it. The rule is generic: adding a package, or a private folder inside one, never means editing the config.
+2. **Freedom inside.** A package's own modules import each other however they like. The rule constrains what crosses the package boundary, not how the implementation behind it is arranged.
+3. **Tests go through the interface too.** Tests live at the repo root, which makes them code outside every package, so the same rule already forces them through the public surface. A passing suite is evidence the interface is usable.
+4. **`__init__.py` is the interface.** Re-export explicit names and list them in `__all__`. Keep the surface enumerable: `from ._lib import *` makes it unenumerable, which is the one thing this whole exercise is buying.
+
+Layering — *which* packages may depend on which — is a different concern, and ships as a commented stub in the config for you to fill in.
+
+## What this skill will do
+
+The steps below are the plan, not yet the implementation. Invoked today, this skill explains the plan and stops; the mechanics land next.
+
+1. **Detect.** Root package, source root and layout (src or flat) from `pyproject.toml`; the package manager (uv / Poetry / PDM / pip).
+2. **Install.** Add tach as a dev dependency with a compatible-minor pin, using the detected manager.
+3. **Configure.** Write the generic `tach.toml`. Extend `.pre-commit-config.yaml` only if one already exists; explain CI wiring in prose rather than writing a workflow.
+4. **Scaffold.** Create an example package that delegates to a private module, as a starter to copy or delete.
+5. **Prove.** Run the check clean, add an import that reaches past an interface (it must fail), revert. Observing the failure is the completion criterion.
+6. **Document.** Write the convention README next to the code it governs, and add a one-line pointer to `CLAUDE.md` or `AGENTS.md`.
+
+Report the plan to the user, name the repo details you detected in step 1 if you can read them cheaply, and say that the remaining steps are not wired up yet.

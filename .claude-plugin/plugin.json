@@ -1,0 +1,12 @@
+{
+  "name": "setup-py-deep-modules",
+  "description": "Enforce deep modules in a Python repo: every package hides its implementation behind a small public interface, checked mechanically by tach.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Xavier Cazalot"
+  },
+  "homepage": "https://github.com/xavxyz/setup-py-deep-modules",
+  "repository": "https://github.com/xavxyz/setup-py-deep-modules",
+  "license": "MIT",
+  "keywords": ["python", "architecture", "deep-modules", "tach", "imports"]
+}
