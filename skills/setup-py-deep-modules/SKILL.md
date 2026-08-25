@@ -62,8 +62,9 @@ python3 "$SETUP" detect
 ```
 
 JSON: the layout (src or flat), the root package, the source roots, the package
-tier and its module glob, the package manager, the exact install command, and
-the tach pin. Read it, then tell the user in a sentence what you found — the
+tier and its module glob, the package manager, the exact install command, the
+`check_command` and `cycle_command` to use from step 5 onwards, and the tach
+pin. Read it, then tell the user in a sentence what you found — the
 layout, the package manager, and where packages will live.
 
 If it exits non-zero it has found something it must not guess at: no
@@ -78,9 +79,10 @@ deliberate: a repo with that convention keeps it.
 Run the `install_command` from step 1 verbatim. It carries a compatible-minor
 pin (`tach~=0.x.0`), so patches flow and a breaking minor does not.
 
-If `records_dependency` is false — the pip case — the install leaves no pin
-behind, so write it into the reported `dependency_file` yourself. A pin nobody
-records is not a pin.
+If `records_dependency` is false — the pip case — the install records nothing,
+so the pin is yours to write down: add `tach_requirement` to the reported
+`dependency_file`, under `dependency_target`, before or after installing. A pin
+nobody records is not a pin.
 
 **Do not run `tach mod` or `tach sync`.** `mod` is interactive and you cannot
 drive it. `sync` writes down the dependencies that happen to exist today,
@@ -98,14 +100,15 @@ tier) and `scripts/check_cycles.py`. It refuses to overwrite an existing
 `tach.toml`: if it does, read that file, discuss it with the user, and re-run
 with `--force` only if they agree.
 
-The output ends with what to do about pre-commit. If the repo has a
-`.pre-commit-config.yaml`, add the printed hook to it by hand, matching the
-file's existing style. If it does not, do not create one — pre-commit is a tool
-the user has not chosen.
+The output ends with what happened about pre-commit. A repo that already has a
+`.pre-commit-config.yaml` gets a `tach check` hook appended to it; read the file
+back, and if it groups its hooks deliberately, move the block to where it
+belongs. A repo without one does not get one — pre-commit is a tool the user has
+not chosen.
 
 Do not write a CI workflow either. Explain in prose instead: their CI needs to
-install the dev dependencies and run `tach check` and `python
-scripts/check_cycles.py`, wherever it already runs their linters.
+install the dev dependencies and run the two commands from step 1
+(`check_command` and `cycle_command`), wherever it already runs their linters.
 
 ### 4. Scaffold
 
@@ -127,8 +130,12 @@ Nothing so far is evidence. A misconfigured `tach.toml` passes just as quietly
 as a correct one, so **this step is the completion criterion: you must see the
 check fail on a real violation, and you must not report success without it.**
 
+Use the `check_command` from step 1 — after `uv add`, `poetry add` or `pdm add`,
+tach lives in the project's environment and not on your PATH, and a "command not
+found" is easily misread as the failure this step is waiting for.
+
 ```sh
-tach check                      # 1. passes
+uv run tach check               # 1. passes  (or the detected check_command)
 ```
 
 If this first run *fails*, the repo has boundary violations already. That is a
@@ -139,19 +146,20 @@ rather than for the overall exit code.
 ```sh
 # 2. must fail, naming the import
 echo "from <tier>.billing._internal._totals import total_due  # noqa: F401" >> <a module outside billing>
-tach check
+uv run tach check
 ```
 
 Confirm the report names that import. Then revert it and confirm the check
-returns to where it was in step 1. Also run:
+returns to where it was in step 1. Also run the `cycle_command`:
 
 ```sh
-python scripts/check_cycles.py
+uv run python scripts/check_cycles.py
 ```
 
 If step 2 does not fail, stop. Do not document anything, and do not tell the
-user it works. Investigate: usually the source roots are wrong, or the module
-you edited is not covered by the config.
+user it works. Investigate: usually the source roots are wrong, tach is not
+actually on the path you invoked, or the module you edited is not covered by the
+config.
 
 ### 6. Document
 
@@ -159,8 +167,8 @@ you edited is not covered by the config.
 python3 "$SETUP" document
 ```
 
-Writes the convention doc into the package tier — next to the code it governs,
-where a reader meets it rather than having to search — and adds a one-line
+Writes the convention doc inside the distribution package — where a reader
+meets it rather than having to search for it — and adds a one-line
 pointer to `CLAUDE.md`, or `AGENTS.md`, creating `AGENTS.md` if the repo has
 neither. It refuses to overwrite an existing README; if so, fold the convention
 into that file by hand instead.

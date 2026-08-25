@@ -17,7 +17,7 @@ import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 
 import pytest
 
@@ -163,8 +163,12 @@ class UserRepo(Project):
         return (self.root / relative_path).exists()
 
 
+#: What the ``user_repo`` fixture hands a test: a builder for one synthetic repo.
+RepoBuilder = Callable[..., "UserRepo"]
+
+
 @pytest.fixture
-def user_repo(tmp_path: Path):
+def user_repo(tmp_path: Path) -> RepoBuilder:
     """Builds a synthetic user repo of a given layout, on demand.
 
     Layouts are built by hand rather than copied from the fixture: the whole

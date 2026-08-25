@@ -28,30 +28,67 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-try:  # tomllib is stdlib from 3.11; tomli is the same parser for 3.10.
+try:
     import tomllib
-except ModuleNotFoundError:  # pragma: no cover - exercised only on 3.10
-    try:
-        import tomli as tomllib  # type: ignore[no-redef]
-    except ModuleNotFoundError:  # pragma: no cover
-        sys.exit(
-            "Reading pyproject.toml needs Python 3.11+, or tomli installed. "
-            "Re-run this script with a newer interpreter."
-        )
+except ModuleNotFoundError:
+    sys.exit(
+        "Reading pyproject.toml needs Python 3.11 or newer. Re-run this script "
+        "with a newer interpreter."
+    )
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = PLUGIN_ROOT / "fixture"
 
 #: Directories that never hold the distribution package, whatever they contain.
-NOT_PACKAGES = {"tests", "test", "docs", "doc", "examples", "scripts", "build", "dist"}
+#: ``packages`` is here because a repo with that directory is using it as its
+#: package tier, which is a thing this skill honours -- but it is not the
+#: distribution package itself, and mistaking it for one stops detection dead.
+NOT_PACKAGES = {
+    "tests",
+    "test",
+    "docs",
+    "doc",
+    "examples",
+    "scripts",
+    "build",
+    "dist",
+    "packages",
+}
 
 #: The example package copied into a user's repo, and the module that proves it
 #: delegates rather than passing through.
 EXAMPLE_PACKAGE = "billing"
 
+#: Everything that differs between package managers, in one place: how to add a
+#: dev dependency, whether doing so records the pin, and how to reach a command
+#: installed into the project's environment.
+MANAGERS = {
+    "uv": {"add": "uv add --dev", "records": True, "run": "uv run "},
+    "poetry": {"add": "poetry add --group dev", "records": True, "run": "poetry run "},
+    "pdm": {"add": "pdm add --dev", "records": True, "run": "pdm run "},
+    "pip": {"add": "python -m pip install", "records": False, "run": ""},
+}
 
-class DetectionError(Exception):
-    """Something about the repo makes it unsafe to configure without asking."""
+
+class SkillError(Exception):
+    """Base for the two reasons this script stops early."""
+
+
+class NeedsADecision(SkillError):
+    """The repo says something the skill must not guess at, or overwrite.
+
+    Every one of these is a question for the user: an ambiguous root package, a
+    missing ``pyproject.toml``, a file that is already there and was not written
+    by this skill.
+    """
+
+
+class PluginBroken(SkillError):
+    """The plugin's own fixture no longer matches what the script renders from it.
+
+    Nothing to do with the user's repo: this says the plugin needs fixing before
+    it can configure anything.
+    """
 
 
 @dataclass(frozen=True)
@@ -72,6 +109,9 @@ class Repo:
     install_command: str
     records_dependency: bool
     dependency_file: str
+    dependency_target: str
+    check_command: str
+    cycle_command: str
     tach_requirement: str
     has_pre_commit: bool
     agent_file: str
@@ -99,6 +139,8 @@ def detect(repo_root: Path) -> Repo:
     tier, glob = _package_tier(repo_root, package_root, source_dir)
     manager = _package_manager(repo_root, config)
     requirement = _tach_requirement()
+    run = str(MANAGERS[manager]["run"])
+    dependency_file = _dependency_file(repo_root, manager)
 
     return Repo(
         layout=layout,
@@ -108,9 +150,12 @@ def detect(repo_root: Path) -> Repo:
         module_glob=glob,
         package_tier=_relative(tier, repo_root),
         package_manager=manager,
-        install_command=_install_command(manager, requirement),
-        records_dependency=manager != "pip",
-        dependency_file=_dependency_file(repo_root, manager),
+        install_command=f'{MANAGERS[manager]["add"]} "{requirement}"',
+        records_dependency=bool(MANAGERS[manager]["records"]),
+        dependency_file=dependency_file,
+        dependency_target=_dependency_target(dependency_file),
+        check_command=f"{run}tach check",
+        cycle_command=f"{run}python scripts/check_cycles.py",
         tach_requirement=requirement,
         has_pre_commit=(repo_root / ".pre-commit-config.yaml").is_file(),
         agent_file=_agent_file(repo_root),
@@ -118,9 +163,11 @@ def detect(repo_root: Path) -> Repo:
 
 
 def _load_pyproject(repo_root: Path) -> dict:
+    """The repo's ``pyproject.toml``, parsed. Every later step reads the layout
+    out of it, so its absence is a stop rather than a default."""
     path = repo_root / "pyproject.toml"
     if not path.is_file():
-        raise DetectionError(
+        raise NeedsADecision(
             f"No pyproject.toml in {repo_root}. The layout is read from it, and "
             "guessing without one would configure the wrong thing silently."
         )
@@ -145,7 +192,7 @@ def _find_package_root(repo_root: Path, config: dict) -> Path:
             candidates.setdefault(child.name, child)
 
     if not candidates:
-        raise DetectionError(
+        raise NeedsADecision(
             "Found no importable package under this repo's source directories. "
             "Point the skill at a repo whose package has an __init__.py."
         )
@@ -155,7 +202,7 @@ def _find_package_root(repo_root: Path, config: dict) -> Path:
     expected = _module_name(config)
     if expected in candidates:
         return candidates[expected]
-    raise DetectionError(
+    raise NeedsADecision(
         "Several packages could be the distribution package: "
         + ", ".join(sorted(candidates))
         + ". Several distributions in one repo is out of scope for this skill; "
@@ -169,24 +216,22 @@ def _declared_source_dirs(repo_root: Path, config: dict) -> list[Path]:
     Declared ones come first so that a repo saying ``where = ["lib"]`` is taken
     at its word rather than matched against a stray ``src``.
     """
-    tools = config.get("tool", {})
     declared: list[str] = []
+    declared += list(_dig(config, "tool", "setuptools", "packages", "find", "where") or [])
+    declared += [
+        value
+        for key, value in (_dig(config, "tool", "setuptools", "package-dir") or {}).items()
+        if key == ""
+    ]
 
-    where = tools.get("setuptools", {}).get("packages", {}).get("find", {}).get("where")
-    declared += list(where or [])
-
-    package_dir = tools.get("setuptools", {}).get("package-dir", {})
-    declared += [value for key, value in package_dir.items() if key == ""]
-
-    for package in tools.get("poetry", {}).get("packages", []) or []:
+    for package in _dig(config, "tool", "poetry", "packages") or []:
         if isinstance(package, dict) and package.get("from"):
             declared.append(str(package["from"]))
 
-    for entry in tools.get("hatch", {}).get("build", {}).get("targets", {}).get(
-        "wheel", {}
-    ).get("packages", []) or []:
-        parent = Path(str(entry)).parent
-        declared.append(str(parent) if str(parent) != "" else ".")
+    for entry in _dig(config, "tool", "hatch", "build", "targets", "wheel", "packages") or []:
+        # Hatch names the package itself ("src/acme"), not the root above it.
+        parent = str(Path(str(entry)).parent)
+        declared.append(parent or ".")
 
     declared += ["src", "."]
 
@@ -196,6 +241,20 @@ def _declared_source_dirs(repo_root: Path, config: dict) -> list[Path]:
         if path.is_dir() and path not in seen:
             seen.append(path)
     return seen
+
+
+def _dig(config: dict, *keys: str):
+    """Walk nested tables, giving up quietly at the first one that is not there.
+
+    Build-backend config is four and five tables deep, and a chain of ``.get({})``
+    calls hides which key was actually being looked for.
+    """
+    current = config
+    for key in keys:
+        if not isinstance(current, dict) or key not in current:
+            return None
+        current = current[key]
+    return current
 
 
 def _module_name(config: dict) -> str:
@@ -234,27 +293,25 @@ def _package_manager(repo_root: Path, config: dict) -> str:
     return "pip"
 
 
-def _install_command(manager: str, requirement: str) -> str:
-    return {
-        "uv": f'uv add --dev "{requirement}"',
-        "poetry": f'poetry add --group dev "{requirement}"',
-        "pdm": f'pdm add --dev "{requirement}"',
-        "pip": f'python -m pip install "{requirement}"',
-    }[manager]
-
-
 def _dependency_file(repo_root: Path, manager: str) -> str:
     """Where the pin has to be written down.
 
     Only meaningful for pip: ``pip install`` records nothing, and a pin nobody
     records is not a pin.
     """
-    if manager != "pip":
+    if MANAGERS[manager]["records"]:
         return "pyproject.toml"
     for candidate in ("requirements-dev.txt", "dev-requirements.txt"):
         if (repo_root / candidate).is_file():
             return candidate
     return "pyproject.toml"
+
+
+def _dependency_target(dependency_file: str) -> str:
+    """Where in that file the pin goes, spelled out rather than left implied."""
+    if dependency_file.endswith(".txt"):
+        return "one requirement per line"
+    return "[project.optional-dependencies] dev"
 
 
 def _tach_requirement() -> str:
@@ -264,7 +321,7 @@ def _tach_requirement() -> str:
         stripped = line.strip().rstrip(",").strip('"')
         if stripped.startswith("tach~="):
             return stripped
-    raise DetectionError("The plugin's fixture no longer pins tach; the plugin is broken.")
+    raise NeedsADecision("The plugin's fixture no longer pins tach; the plugin is broken.")
 
 
 def _agent_file(repo_root: Path) -> str:
@@ -276,6 +333,7 @@ def _agent_file(repo_root: Path) -> str:
 
 
 def _relative(path: Path, repo_root: Path) -> str:
+    """A path as the user would type it: relative to the repo root, or ``.``."""
     relative = path.resolve().relative_to(repo_root.resolve())
     return str(relative) if str(relative) != "." else "."
 
@@ -294,7 +352,7 @@ def configure(repo_root: Path, repo: Repo, force: bool = False) -> list[str]:
     report: list[str] = []
     config_path = repo_root / "tach.toml"
     if config_path.exists() and not force:
-        raise DetectionError(
+        raise NeedsADecision(
             f"{_relative(config_path, repo_root)} already exists. Read it, decide "
             "with the user what should happen to it, and re-run with --force to "
             "replace it. Nothing has been written."
@@ -315,7 +373,7 @@ def configure(repo_root: Path, repo: Repo, force: bool = False) -> list[str]:
         script_path.chmod(0o755)
         report.append("Wrote scripts/check_cycles.py (tach check cannot see real cycles).")
 
-    report.append(_pre_commit_advice(repo))
+    report.append(_extend_pre_commit(repo_root, repo))
     return report
 
 
@@ -336,35 +394,55 @@ def render_config(repo: Repo) -> str:
         r'^path = "myproject\.\*"$', f'path = "{repo.module_glob}"', text, count=1, flags=re.M
     )
     if not (roots_changed and glob_changed):
-        raise DetectionError(
-            "The plugin's fixture tach.toml no longer has the lines this renders. "
-            "The plugin needs fixing before it can configure anything."
+        raise PluginBroken(
+            "The plugin's fixture tach.toml no longer has the lines this renders."
         )
     return text
 
 
-def _pre_commit_advice(repo: Repo) -> str:
-    """What to say about pre-commit, which is the user's choice and not ours.
+HOOK = """  - repo: local
+    hooks:
+      - id: tach
+        name: tach check
+        entry: {command}
+        language: system
+        pass_filenames: false
+        types: [python]
+"""
 
-    The edit itself is left to the agent: an existing config has a shape, and
-    splicing YAML blindly is how a working repo gets broken.
+
+def _extend_pre_commit(repo_root: Path, repo: Repo) -> str:
+    """Add the check to an existing pre-commit config, and only an existing one.
+
+    A repo without pre-commit has not chosen pre-commit, and arriving with it
+    uninvited is how a setup skill becomes something people undo. Where the file
+    is there, the hook is appended rather than spliced into the middle: the end
+    of the ``repos:`` list is the one position that needs no understanding of
+    what the rest of the file is doing.
     """
-    if not repo.has_pre_commit:
+    path = repo_root / ".pre-commit-config.yaml"
+    if not path.is_file():
         return (
             "No .pre-commit-config.yaml here, so none was created: pre-commit is a "
             "tool the user has not chosen. Explain CI wiring in prose instead."
         )
+
+    existing = path.read_text()
+    if "id: tach" in existing:
+        return ".pre-commit-config.yaml already runs tach; left as it was."
+    if not re.search(r"^repos:", existing, flags=re.M):
+        return (
+            ".pre-commit-config.yaml has no top-level `repos:` list, so it was "
+            "left alone. Add this hook by hand, matching the file's own shape:\n"
+            + HOOK.format(command=repo.check_command)
+        )
+
+    separator = "" if existing.endswith("\n") else "\n"
+    path.write_text(existing + separator + HOOK.format(command=repo.check_command))
     return (
-        ".pre-commit-config.yaml exists, so add this hook to its `repos:` list "
-        "(edit it by hand, matching the file's existing style):\n"
-        "  - repo: local\n"
-        "    hooks:\n"
-        "      - id: tach\n"
-        "        name: tach check\n"
-        "        entry: tach check\n"
-        "        language: system\n"
-        "        pass_filenames: false\n"
-        "        types: [python]"
+        "Added a `tach check` hook to the end of .pre-commit-config.yaml. Read it "
+        "back: if the file groups its hooks deliberately, move the block to where "
+        "it belongs."
     )
 
 
@@ -382,7 +460,7 @@ def scaffold(repo_root: Path, repo: Repo, name: str = EXAMPLE_PACKAGE) -> list[s
     """
     destination = repo_root / repo.package_tier / name
     if destination.exists():
-        raise DetectionError(
+        raise NeedsADecision(
             f"{_relative(destination, repo_root)} already exists. Pass a different "
             "--name, or delete it first. Nothing has been written."
         )
@@ -408,9 +486,12 @@ def scaffold(repo_root: Path, repo: Repo, name: str = EXAMPLE_PACKAGE) -> list[s
 def document(repo_root: Path, repo: Repo, force: bool = False) -> list[str]:
     """Write the convention doc, and point the repo's agent file at it."""
     report: list[str] = []
-    doc_path = repo_root / repo.package_tier / "README.md"
+    # Inside the distribution package: the directory a reader is already in
+    # when the question occurs to them. Where a repo keeps its packages
+    # elsewhere, the doc says so rather than following them out.
+    doc_path = repo_root / repo.package_root / "README.md"
     if doc_path.exists() and not force:
-        raise DetectionError(
+        raise NeedsADecision(
             f"{_relative(doc_path, repo_root)} already exists. Fold the convention "
             "into it by hand, or re-run with --force to replace it. Nothing has "
             "been written."
@@ -433,8 +514,8 @@ def render_conventions(repo: Repo) -> str:
         "TIER_IMPORT": _tier_import(repo),
         "PACKAGE_TIER": repo.package_tier,
         "EXAMPLE": EXAMPLE_PACKAGE,
-        "CHECK_COMMAND": "tach check",
-        "CYCLE_COMMAND": "python scripts/check_cycles.py",
+        "CHECK_COMMAND": repo.check_command,
+        "CYCLE_COMMAND": repo.cycle_command,
     }
     text = template.read_text()
     for placeholder, value in substitutions.items():
@@ -481,6 +562,7 @@ def _report(lines: list[str]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run one step against one repo, and say what it did or why it did not."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--repo",
@@ -522,7 +604,7 @@ def main(argv: list[str] | None = None) -> int:
             _report(scaffold(repo_root, detect(repo_root), name=arguments.name))
         elif arguments.command == "document":
             _report(document(repo_root, detect(repo_root), force=arguments.force))
-    except DetectionError as error:
+    except SkillError as error:
         print(str(error), file=sys.stderr)
         return 1
     return 0

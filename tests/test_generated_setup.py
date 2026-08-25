@@ -12,7 +12,7 @@ output is worth shipping.
 
 from __future__ import annotations
 
-from conftest import UserRepo
+from conftest import RepoBuilder, UserRepo, config_untouched
 
 DEEP_IMPORT = "from acme_widgets.billing._internal._totals import total_due  # noqa: F401"
 
@@ -26,7 +26,7 @@ def _set_up(repo: UserRepo) -> UserRepo:
     return repo
 
 
-def test_the_proof_cycle_in_a_src_layout_repo(user_repo) -> None:
+def test_the_proof_cycle_in_a_src_layout_repo(user_repo: RepoBuilder) -> None:
     repo = _set_up(user_repo("src"))
 
     assert repo.check().passed
@@ -40,7 +40,7 @@ def test_the_proof_cycle_in_a_src_layout_repo(user_repo) -> None:
     assert repo.check().passed
 
 
-def test_the_proof_cycle_in_a_flat_layout_repo(user_repo) -> None:
+def test_the_proof_cycle_in_a_flat_layout_repo(user_repo: RepoBuilder) -> None:
     """A flat-layout repo adopts the rule without restructuring: the source root
     is the repo itself, which is also where its tests already live."""
     repo = _set_up(user_repo("flat"))
@@ -56,7 +56,7 @@ def test_the_proof_cycle_in_a_flat_layout_repo(user_repo) -> None:
     assert repo.check().passed
 
 
-def test_a_top_level_test_is_bound_by_the_rule_too(user_repo) -> None:
+def test_a_top_level_test_is_bound_by_the_rule_too(user_repo: RepoBuilder) -> None:
     """Easy to get silently wrong: tach's default ``exclude`` list contains
     ``**/tests``, so a default config would pass this vacuously."""
     repo = _set_up(user_repo("src"))
@@ -68,7 +68,7 @@ def test_a_top_level_test_is_bound_by_the_rule_too(user_repo) -> None:
     assert result.mentions("tests/test_app.py")
 
 
-def test_the_repos_own_loose_modules_raise_no_complaints(user_repo) -> None:
+def test_the_repos_own_loose_modules_raise_no_complaints(user_repo: RepoBuilder) -> None:
     """Adopting the rule must not open with a list of grievances about code that
     is fine. Loose modules at the root package level are the unconstrained tier."""
     repo = _set_up(
@@ -86,11 +86,9 @@ def test_the_repos_own_loose_modules_raise_no_complaints(user_repo) -> None:
     assert repo.check().passed
 
 
-def test_growing_the_repo_afterwards_needs_no_edit_to_the_config(user_repo) -> None:
+def test_growing_the_repo_afterwards_needs_no_edit_to_the_config(user_repo: RepoBuilder) -> None:
     """The property the tool choice rests on, checked against a generated config
     rather than the hand-written fixture one."""
-    from conftest import config_untouched
-
     repo = _set_up(user_repo("src"))
 
     with config_untouched(repo):
@@ -117,7 +115,7 @@ def test_growing_the_repo_afterwards_needs_no_edit_to_the_config(user_repo) -> N
         assert result.mentions("acme_widgets.search._internal._engine.search")
 
 
-def test_an_existing_packages_directory_is_configured_in_place(user_repo) -> None:
+def test_an_existing_packages_directory_is_configured_in_place(user_repo: RepoBuilder) -> None:
     repo = _set_up(
         user_repo(
             "src",
@@ -146,7 +144,7 @@ def test_an_existing_packages_directory_is_configured_in_place(user_repo) -> Non
     assert result.mentions("packages.orders._internal._book.place")
 
 
-def test_cycles_between_packages_are_rejected_in_the_users_repo(user_repo) -> None:
+def test_cycles_between_packages_are_rejected_in_the_users_repo(user_repo: RepoBuilder) -> None:
     """``tach check`` cannot do this one -- see ``fixture/README.md`` -- so the
     skill copies the script that can."""
     repo = _set_up(user_repo("src"))
