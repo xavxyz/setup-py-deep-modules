@@ -7,8 +7,8 @@ one right answer belong here, so that they come out the same on every run and
 can be tested: what the layout is, what goes in ``tach.toml``, where the example
 package lands, and what the convention doc says.
 
-Everything this writes is derived from ``fixture/`` in the plugin, which CI
-proves on every push. Nothing is a second copy of it.
+Everything this writes is derived from the ``fixture/`` beside this script, which
+CI proves on every push. Nothing is a second copy of it.
 
 Usage, from the root of the repo being set up:
 
@@ -36,8 +36,14 @@ except ModuleNotFoundError:
         "with a newer interpreter."
     )
 
-PLUGIN_ROOT = Path(__file__).resolve().parents[3]
-FIXTURE = PLUGIN_ROOT / "fixture"
+#: Everything this script reads lives inside the skill directory and is resolved
+#: from the script's own location, so that copying that directory -- which is all
+#: a skill installer copies -- copies a working skill. Nothing here may reach
+#: above ``SKILL_ROOT``: the moment it does, the skill only runs inside a
+#: checkout of the plugin repo, which is the bug this shape exists to prevent.
+SKILL_ROOT = Path(__file__).resolve().parents[1]
+FIXTURE = SKILL_ROOT / "fixture"
+ASSETS = SKILL_ROOT / "assets"
 
 #: Directories that never hold the distribution package, whatever they contain.
 #: ``packages`` is here because a repo with that directory is using it as its
@@ -508,7 +514,7 @@ def document(repo_root: Path, repo: Repo, force: bool = False) -> list[str]:
 
 def render_conventions(repo: Repo) -> str:
     """The convention doc, written about this repo rather than about an example."""
-    template = (PLUGIN_ROOT / "skills" / "setup-py-deep-modules" / "assets" / "conventions.md")
+    template = ASSETS / "conventions.md"
     substitutions = {
         "ROOT_PACKAGE": repo.root_package,
         "TIER_IMPORT": _tier_import(repo),

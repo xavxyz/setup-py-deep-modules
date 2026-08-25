@@ -22,21 +22,23 @@ jobs:
 
       - uses: astral-sh/setup-uv@v5
 
-      # fixture/pyproject.toml holds the compatible-minor pin, and is the only
+      # The fixture lives inside the skill, so that the skill directory is
+      # self-contained and an installer that copies only it still gets a working
+      # skill. Its pyproject.toml holds the compatible-minor pin, and is the only
       # place it is written down.
       - name: Install the pinned tooling
-        run: uv pip install --system -r fixture/pyproject.toml --extra dev
+        run: uv pip install --system -r skills/setup-py-deep-modules/fixture/pyproject.toml --extra dev
 
       - name: tach check passes on the clean fixture
-        working-directory: fixture
+        working-directory: skills/setup-py-deep-modules/fixture
         run: tach check
 
       - name: No import cycles between packages
-        working-directory: fixture
+        working-directory: skills/setup-py-deep-modules/fixture
         run: python scripts/check_cycles.py
 
       - name: The fixture's own tests pass through the interfaces
-        working-directory: fixture
+        working-directory: skills/setup-py-deep-modules/fixture
         run: pytest -q
 
       - name: Prove the rules bite (pass / fail / pass)

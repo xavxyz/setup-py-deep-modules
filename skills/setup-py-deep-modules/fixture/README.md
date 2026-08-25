@@ -6,10 +6,15 @@ starting with `_`**. CI runs the proof on every push and on a schedule.
 
 The same project is the copy-me example the skill scaffolds in a user's repo, so
 it is written and maintained once and cannot drift from what users are told to
-copy. That is literal: `skills/setup-py-deep-modules/scripts/setup_deep_modules.py`
-reads this directory at runtime -- the `tach.toml` here is what it renders into a
-user's repo, `billing/` is what it copies in, and `pyproject.toml` here is where
-it reads the tach pin from. Editing the fixture edits the skill's output.
+copy. That is literal: `../scripts/setup_deep_modules.py` reads this directory at
+runtime -- the `tach.toml` here is what it renders into a user's repo, `billing/`
+is what it copies in, and `pyproject.toml` here is where it reads the tach pin
+from. Editing the fixture edits the skill's output.
+
+It lives *inside* the skill directory rather than beside it, so that the skill is
+self-contained: an installer that copies only `skills/setup-py-deep-modules/`
+still gets everything the script reads. Moving it back out breaks every skill-only
+install (issue #8).
 
 ## The shape to copy
 
@@ -49,8 +54,9 @@ python scripts/check_cycles.py   # no cycles between packages
 pytest                           # the fixture's own tests, via the interfaces
 ```
 
-The full pass/fail/pass proof lives in `../tests/`, and runs against throwaway
-copies of this directory:
+The full pass/fail/pass proof lives in the plugin repo's top-level `tests/` --
+not shipped with the skill, since it is how the skill is developed rather than
+part of it -- and runs against throwaway copies of this directory:
 
 ```sh
 pytest tests -q     # from the repo root
