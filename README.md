@@ -42,7 +42,7 @@ past it.
 One command, in Claude Code:
 
 ```
-/plugin marketplace add xavxyz/setup-py-deep-modules
+npx skills xavxyz/setup-py-deep-modules
 ```
 
 That adds the marketplace and offers the plugin for install. Then, in your
