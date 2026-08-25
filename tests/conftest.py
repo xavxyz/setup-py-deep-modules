@@ -21,7 +21,15 @@ from typing import Callable, Iterator
 
 import pytest
 
-FIXTURE_PROJECT = Path(__file__).resolve().parent.parent / "fixture"
+#: The skill as it ships: everything an installer copies, and nothing else.
+SKILL_DIRECTORY = (
+    Path(__file__).resolve().parent.parent / "skills" / "setup-py-deep-modules"
+)
+
+SKILL_SCRIPT = SKILL_DIRECTORY / "scripts" / "setup_deep_modules.py"
+
+#: The fixture is part of the skill, not a sibling of it.
+FIXTURE_PROJECT = SKILL_DIRECTORY / "fixture"
 
 
 @dataclass(frozen=True)
@@ -121,22 +129,21 @@ def project(tmp_path: Path) -> Project:
     return Project(root)
 
 
-SKILL_SCRIPT = (
-    Path(__file__).resolve().parent.parent
-    / "skills"
-    / "setup-py-deep-modules"
-    / "scripts"
-    / "setup_deep_modules.py"
-)
-
-
 class UserRepo(Project):
     """A synthetic repo standing in for the one a user runs the skill in.
 
     It is a ``Project`` too, so the same ``check``/``check_cycles`` assertions
     that prove the fixture apply to a repo the skill has just set up -- which is
     the point: what the skill writes has to bite the same way.
+
+    ``script`` is which copy of the skill to drive. It defaults to the one in
+    this checkout; the self-containment tests point it at a scratch install
+    instead, which is the whole question they ask.
     """
+
+    def __init__(self, root: Path, script: Path = SKILL_SCRIPT) -> None:
+        super().__init__(root)
+        self.script = script
 
     def detect(self) -> CommandResult:
         return self.skill("detect")
@@ -157,7 +164,7 @@ class UserRepo(Project):
         return self.skill("document", *args)
 
     def skill(self, *args: str) -> CommandResult:
-        return self._invoke([str(SKILL_SCRIPT), *args])
+        return self._invoke([str(self.script), *args])
 
     def exists(self, relative_path: str) -> bool:
         return (self.root / relative_path).exists()
@@ -184,10 +191,11 @@ def user_repo(tmp_path: Path) -> RepoBuilder:
         pyproject: str | None = None,
         files: dict[str, str] | None = None,
         tests: bool = True,
+        script: Path = SKILL_SCRIPT,
     ) -> UserRepo:
         root = tmp_path / "user_repo"
         root.mkdir(exist_ok=True)
-        repo = UserRepo(root)
+        repo = UserRepo(root, script)
 
         if pyproject is None:
             pyproject = DEFAULT_PYPROJECT.format(name=name, layout_config=(

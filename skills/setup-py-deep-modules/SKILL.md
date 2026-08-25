@@ -46,8 +46,11 @@ Layering — *which* packages may depend on which — ships as a commented stub 
 
 One script does the mechanical half. Run everything from the root of the user's repo.
 
+The script ships inside this skill, in `scripts/` beside this file, along with the `fixture/` it renders everything from. Set `SETUP` to its absolute path, resolved from wherever you read this SKILL.md. Do **not** reach for `${CLAUDE_PLUGIN_ROOT}`: it is set only for plugin installs, and expands to nothing when the skill is installed on its own, which silently turns every command below into a path that does not exist.
+
 ```sh
-SETUP="${CLAUDE_PLUGIN_ROOT}/skills/setup-py-deep-modules/scripts/setup_deep_modules.py"
+SETUP="<the directory holding this SKILL.md>/scripts/setup_deep_modules.py"
+python3 "$SETUP" --help          # confirm the path before relying on it
 ```
 
 ### 1. Detect
