@@ -1,0 +1,68 @@
+name: proof
+
+# The proof runs on push, and on a schedule. The schedule is the point: tach is
+# pre-1.0, and a scheduled run is what catches it changing behaviour under us
+# before a user hits it.
+on:
+  push:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+jobs:
+  pinned:
+    name: proof against the pinned tach
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v5
+
+      # fixture/pyproject.toml holds the compatible-minor pin, and is the only
+      # place it is written down.
+      - name: Install the pinned tooling
+        run: uv pip install --system -r fixture/pyproject.toml --extra dev
+
+      - name: tach check passes on the clean fixture
+        working-directory: fixture
+        run: tach check
+
+      - name: No import cycles between packages
+        working-directory: fixture
+        run: python scripts/check_cycles.py
+
+      - name: The fixture's own tests pass through the interfaces
+        working-directory: fixture
+        run: pytest -q
+
+      - name: Prove the rules bite (pass / fail / pass)
+        run: pytest tests -q
+
+  canary:
+    name: proof against the latest tach
+    runs-on: ubuntu-latest
+    # Non-blocking by design. The pin means a breaking tach minor would never be
+    # installed by the job above, so this is the job that actually sees one
+    # coming. A red canary is a signal to go and look, not a broken repo.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install the latest tach
+        run: uv pip install --system --upgrade tach "pytest~=8.3"
+
+      - name: Report the version under test
+        run: tach --version
+
+      - name: Prove the rules still bite
+        run: pytest tests -q

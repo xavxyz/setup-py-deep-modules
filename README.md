@@ -75,6 +75,7 @@ src/myproject/
     __init__.py               uses billing through its public surface only
     _internal/_templates.py
 tests/                        top-level, and bound by the same rule
+scripts/check_cycles.py       rejects import cycles between packages
 tach.toml
 ```
 
@@ -112,6 +113,10 @@ source_roots = ["src", "tests"]
 # consumer.
 exclude = ["**/*__pycache__", "**/*egg-info", "**/docs", "**/venv", "**/.venv"]
 
+# Covers dependencies *declared* below via `depends_on`, which the generic rule
+# deliberately does not use — so this starts holding once you fill in the
+# layering stub. Cycles between the real imports are caught by
+# `scripts/check_cycles.py`, which reads the actual graph from `tach map`.
 forbid_circular_dependencies = true
 
 # Code outside every package — the top-level tests, and loose modules sitting
@@ -141,12 +146,20 @@ ships as a commented stub for you to fill in.
 
 ```sh
 tach check
+python scripts/check_cycles.py
 ```
 
 Clean exit means every import in the repo goes through a public surface. A
 violation is reported by name, pointing at the offending import. The skill
 wires the check into `.pre-commit-config.yaml` if you already have one, and
 explains CI wiring in prose rather than writing a workflow into your repo.
+
+The second command is there because tach's `forbid_circular_dependencies` only
+looks at dependencies *declared* in `tach.toml`, and the generic rule
+deliberately declares none — so it never sees a cycle the real imports form.
+`check_cycles.py` reads the real graph from `tach map` instead, and, like the
+interface rule, needs no per-package configuration: your packages are whatever
+the directory listing says they are.
 
 ## Two deliberate divergences from the TypeScript original
 
