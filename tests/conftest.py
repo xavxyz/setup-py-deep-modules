@@ -26,6 +26,7 @@ SKILL_DIRECTORY = (
     Path(__file__).resolve().parent.parent / "skills" / "setup-py-deep-modules"
 )
 
+#: The mechanical half, which the skill drives.
 SKILL_SCRIPT = SKILL_DIRECTORY / "scripts" / "setup_deep_modules.py"
 
 #: The fixture is part of the skill, not a sibling of it.

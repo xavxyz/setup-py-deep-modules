@@ -54,8 +54,9 @@ python scripts/check_cycles.py   # no cycles between packages
 pytest                           # the fixture's own tests, via the interfaces
 ```
 
-The full pass/fail/pass proof lives in the repo's top-level `tests/`, and runs
-against throwaway copies of this directory:
+The full pass/fail/pass proof lives in the plugin repo's top-level `tests/` --
+not shipped with the skill, since it is how the skill is developed rather than
+part of it -- and runs against throwaway copies of this directory:
 
 ```sh
 pytest tests -q     # from the repo root

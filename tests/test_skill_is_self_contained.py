@@ -18,29 +18,44 @@ from __future__ import annotations
 import importlib.util
 import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 
 import pytest
-from conftest import SKILL_DIRECTORY, RepoBuilder, UserRepo
+from conftest import SKILL_DIRECTORY, RepoBuilder
+
+
+@dataclass(frozen=True)
+class InstalledSkill:
+    """Where an installer left the skill, and the script inside it.
+
+    Both, because the tests need the boundary as well as the entry point, and
+    recovering one from the other means writing down an offset between them --
+    which is the mistake this whole file exists to catch.
+    """
+
+    root: Path
+    script: Path
 
 
 @pytest.fixture
-def installed_skill(tmp_path: Path) -> Path:
+def installed_skill(tmp_path: Path) -> InstalledSkill:
     """The skill copied out on its own, as an installer would leave it."""
-    destination = tmp_path / "install" / ".agents" / "skills" / "setup-py-deep-modules"
+    root = tmp_path / "install" / ".agents" / "skills" / "setup-py-deep-modules"
     shutil.copytree(
         SKILL_DIRECTORY,
-        destination,
+        root,
         ignore=shutil.ignore_patterns("__pycache__"),
     )
-    return destination / "scripts" / "setup_deep_modules.py"
+    return InstalledSkill(root=root, script=root / "scripts" / "setup_deep_modules.py")
 
 
 def test_detect_runs_from_a_skill_only_install(
-    user_repo: RepoBuilder, installed_skill: Path
+    user_repo: RepoBuilder, installed_skill: InstalledSkill
 ) -> None:
     """The first step of the skill, and the one the bug report died on."""
-    repo = user_repo(script=installed_skill)
+    repo = user_repo(script=installed_skill.script)
 
     facts = repo.facts()
 
@@ -51,7 +66,7 @@ def test_detect_runs_from_a_skill_only_install(
 
 
 def test_every_write_step_runs_from_a_skill_only_install(
-    user_repo: RepoBuilder, installed_skill: Path
+    user_repo: RepoBuilder, installed_skill: InstalledSkill
 ) -> None:
     """Each step renders from a different corner of the skill directory.
 
@@ -59,7 +74,7 @@ def test_every_write_step_runs_from_a_skill_only_install(
     its example package, and ``document`` renders the template from ``assets/``.
     A test that stopped at ``detect`` would leave three of them unproven.
     """
-    repo = user_repo(script=installed_skill)
+    repo = user_repo(script=installed_skill.script)
 
     for step in (repo.configure(), repo.scaffold(), repo.document()):
         assert step.passed, step.output
@@ -70,16 +85,16 @@ def test_every_write_step_runs_from_a_skill_only_install(
 
 
 def test_no_path_the_script_reads_escapes_the_skill_directory(
-    installed_skill: Path,
+    installed_skill: InstalledSkill,
 ) -> None:
     """The property, checked rather than left to hold by luck.
 
-    The three tests above only cover the paths those steps happen to touch. This
+    The two tests above only cover the paths those steps happen to touch. This
     one covers the rest, and is what stops the next file the script needs from
     quietly reintroducing the bug.
     """
-    module = _load(installed_skill)
-    skill_root = installed_skill.parent.parent
+    module = _import_installed_script(installed_skill.script)
+    skill_root = installed_skill.root
 
     roots = {
         name: value
@@ -98,7 +113,52 @@ def test_no_path_the_script_reads_escapes_the_skill_directory(
     )
 
 
-def _load(script: Path):
+def test_the_script_works_out_where_it_lives_exactly_once(
+    installed_skill: InstalledSkill,
+) -> None:
+    """The test above only sees paths resolved at module level.
+
+    A read built inside a function body would slip past it while being the exact
+    shape of the original bug, so this pins the other half: there is one
+    derivation of the skill's location in the script, and everything hangs off
+    it. Adding a second is how this bug would come back.
+    """
+    source = installed_skill.script.read_text()
+
+    assert source.count("Path(__file__)") == 1, (
+        "the script works out where it lives more than once; every path it reads "
+        "should hang off the single SKILL_ROOT"
+    )
+
+
+def test_the_documented_command_points_at_the_installed_script(
+    installed_skill: InstalledSkill,
+) -> None:
+    """SKILL.md is the agent's only instruction, so it has to be right too.
+
+    It used to build the path from ``CLAUDE_PLUGIN_ROOT``, which is set only for
+    plugin installs and expands to nothing otherwise -- the same bug wearing
+    different clothes, and invisible to any test that only drove the script.
+    """
+    skill_md = (installed_skill.root / "SKILL.md").read_text()
+
+    # Naming the variable is fine -- SKILL.md warns the agent off it. Assigning
+    # the script path from it is the defect.
+    assignments = [
+        line for line in skill_md.splitlines() if line.strip().startswith("SETUP=")
+    ]
+    assert assignments, "SKILL.md no longer says where the script is"
+    for line in assignments:
+        assert "CLAUDE_PLUGIN_ROOT" not in line, (
+            f"SKILL.md builds the script path from a plugin-only variable: {line}"
+        )
+
+    documented = "scripts/setup_deep_modules.py"
+    assert all(documented in line for line in assignments)
+    assert (installed_skill.root / documented).exists()
+
+
+def _import_installed_script(script: Path) -> ModuleType:
     """Import the installed copy, without putting it on the import path."""
     name = "installed_skill_script"
     spec = importlib.util.spec_from_file_location(name, script)

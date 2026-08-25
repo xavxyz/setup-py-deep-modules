@@ -145,7 +145,7 @@ def test_an_existing_packages_directory_is_configured_in_place(user_repo: RepoBu
 
 
 def test_cycles_between_packages_are_rejected_in_the_users_repo(user_repo: RepoBuilder) -> None:
-    """``tach check`` cannot do this one -- see ``fixture/README.md`` -- so the
+    """``tach check`` cannot do this one -- see the fixture's ``README.md`` -- so the
     skill copies the script that can."""
     repo = _set_up(user_repo("src"))
 
