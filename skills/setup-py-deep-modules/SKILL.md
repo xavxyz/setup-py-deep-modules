@@ -12,7 +12,7 @@ The idea being enforced here is the **deep module**: a lot of behaviour behind a
 
 That paragraph is all the vocabulary this skill needs. If the `codebase-design` skill is installed, call it and use its language throughout.
 
-The plan is to make that boundary mechanical with [tach](https://github.com/tach-org/tach): a package's public surface is every name that does **not** start with an underscore, and `tach check` fails on any import that reaches past it. The mechanics are not wired up yet — see [What this skill will do](#what-this-skill-will-do) for what running it does today.
+That boundary is made mechanical with [tach](https://github.com/tach-org/tach): a package's public surface is every name that does **not** start with an underscore, and `tach check` fails on any import that reaches past it.
 
 ## The shape this enforces
 
@@ -41,15 +41,133 @@ Five rules, the first four checked by `tach check`:
 
 Layering — *which* packages may depend on which — is a different concern, and ships as a commented stub in the config for you to fill in.
 
-## What this skill will do
+## Running this skill
 
-The steps below are the plan, not yet the implementation. Invoked today, this skill explains the plan and stops; the mechanics land next.
+Six steps, in order. The mechanical parts — reading the layout, rendering the
+config, copying the example, writing the doc — are one script, so they come out
+the same every run:
 
-1. **Detect.** Root package, source root and layout (src or flat) from `pyproject.toml`; the package manager (uv / Poetry / PDM / pip).
-2. **Install.** Add tach as a dev dependency with a compatible-minor pin, using the detected manager.
-3. **Configure.** Write the generic `tach.toml` and `scripts/check_cycles.py`. Extend `.pre-commit-config.yaml` only if one already exists; explain CI wiring in prose rather than writing a workflow.
-4. **Scaffold.** Create an example package that delegates to a private module, as a starter to copy or delete.
-5. **Prove.** Run the check clean, add an import that reaches past an interface (it must fail), revert. Observing the failure is the completion criterion.
-6. **Document.** Write the convention README next to the code it governs, and add a one-line pointer to `CLAUDE.md` or `AGENTS.md`.
+```sh
+SETUP="${CLAUDE_PLUGIN_ROOT}/skills/setup-py-deep-modules/scripts/setup_deep_modules.py"
+```
 
-Invoked today: report this plan to the user, say the steps are not wired up yet, and stop.
+Run every command from the root of the user's repo, with a Python 3.11 or newer
+interpreter. Everything the script writes is derived from `fixture/` in this
+plugin, which CI proves on every push — so what a user gets is what is proven.
+
+### 1. Detect
+
+```sh
+python3 "$SETUP" detect
+```
+
+JSON: the layout (src or flat), the root package, the source roots, the package
+tier and its module glob, the package manager, the exact install command, and
+the tach pin. Read it, then tell the user in a sentence what you found — the
+layout, the package manager, and where packages will live.
+
+If it exits non-zero it has found something it must not guess at: no
+`pyproject.toml`, or several candidate root packages. Relay the message and ask
+the user, rather than picking for them.
+
+An existing `packages/` directory shows up as the package tier. That is
+deliberate: a repo with that convention keeps it.
+
+### 2. Install
+
+Run the `install_command` from step 1 verbatim. It carries a compatible-minor
+pin (`tach~=0.x.0`), so patches flow and a breaking minor does not.
+
+If `records_dependency` is false — the pip case — the install leaves no pin
+behind, so write it into the reported `dependency_file` yourself. A pin nobody
+records is not a pin.
+
+**Do not run `tach mod` or `tach sync`.** `mod` is interactive and you cannot
+drive it. `sync` writes down the dependencies that happen to exist today,
+cementing the current structure as the rule — the opposite of what is being
+installed here.
+
+### 3. Configure
+
+```sh
+python3 "$SETUP" configure
+```
+
+Writes `tach.toml` (the generic rule, rendered for this repo's roots and package
+tier) and `scripts/check_cycles.py`. It refuses to overwrite an existing
+`tach.toml`: if it does, read that file, discuss it with the user, and re-run
+with `--force` only if they agree.
+
+The output ends with what to do about pre-commit. If the repo has a
+`.pre-commit-config.yaml`, add the printed hook to it by hand, matching the
+file's existing style. If it does not, do not create one — pre-commit is a tool
+the user has not chosen.
+
+Do not write a CI workflow either. Explain in prose instead: their CI needs to
+install the dev dependencies and run `tach check` and `python
+scripts/check_cycles.py`, wherever it already runs their linters.
+
+### 4. Scaffold
+
+```sh
+python3 "$SETUP" scaffold
+```
+
+Copies a worked example into the package tier: a public surface in
+`__init__.py`, a further entry point in `quote.py`, and the behaviour behind
+both in `_internal/`. It delegates rather than passing through, which is the
+part worth copying.
+
+Tell the user it is a starter: copy its shape, then `rm -rf` it. Nothing in
+their repo imports it, so it deletes cleanly.
+
+### 5. Prove
+
+Nothing so far is evidence. A misconfigured `tach.toml` passes just as quietly
+as a correct one, so **this step is the completion criterion: you must see the
+check fail on a real violation, and you must not report success without it.**
+
+```sh
+tach check                      # 1. passes
+```
+
+If this first run *fails*, the repo has boundary violations already. That is a
+real finding, not an error — report them to the user as existing debt to fix,
+and carry on with the cycle below, watching for the specific import you add
+rather than for the overall exit code.
+
+```sh
+# 2. must fail, naming the import
+echo "from <tier>.billing._internal._totals import total_due  # noqa: F401" >> <a module outside billing>
+tach check
+```
+
+Confirm the report names that import. Then revert it and confirm the check
+returns to where it was in step 1. Also run:
+
+```sh
+python scripts/check_cycles.py
+```
+
+If step 2 does not fail, stop. Do not document anything, and do not tell the
+user it works. Investigate: usually the source roots are wrong, or the module
+you edited is not covered by the config.
+
+### 6. Document
+
+```sh
+python3 "$SETUP" document
+```
+
+Writes the convention doc into the package tier — next to the code it governs,
+where a reader meets it rather than having to search — and adds a one-line
+pointer to `CLAUDE.md`, or `AGENTS.md`, creating `AGENTS.md` if the repo has
+neither. It refuses to overwrite an existing README; if so, fold the convention
+into that file by hand instead.
+
+### Finally
+
+Report to the user: what was detected, what was installed and written, **that
+you watched the check fail on a violation and pass again afterwards**, any
+pre-existing violations you found, how to run the check, and that the example
+package is theirs to copy or delete.

@@ -6,7 +6,10 @@ starting with `_`**. CI runs the proof on every push and on a schedule.
 
 The same project is the copy-me example the skill scaffolds in a user's repo, so
 it is written and maintained once and cannot drift from what users are told to
-copy.
+copy. That is literal: `skills/setup-py-deep-modules/scripts/setup_deep_modules.py`
+reads this directory at runtime -- the `tach.toml` here is what it renders into a
+user's repo, `billing/` is what it copies in, and `pyproject.toml` here is where
+it reads the tach pin from. Editing the fixture edits the skill's output.
 
 ## The shape to copy
 
