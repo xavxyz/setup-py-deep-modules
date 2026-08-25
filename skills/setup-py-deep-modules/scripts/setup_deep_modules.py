@@ -490,7 +490,41 @@ def scaffold(repo_root: Path, repo: Repo, name: str = EXAMPLE_PACKAGE) -> list[s
 # --------------------------------------------------------------------------
 
 
-def find_violation(repo_root: Path, repo: Repo) -> dict:
+@dataclass(frozen=True)
+class Violation:
+    """A private name the repo already has, and somewhere to import it from.
+
+    The same shape as ``Repo``, for the same reason: one dataclass serialised
+    to JSON for the agent and passed around in Python by the steps, so the two
+    can never disagree about what was found.
+    """
+
+    found: bool
+    module: str | None
+    import_line: str | None
+    target_file: str | None
+    expected_mention: str | None
+    next_step: str
+
+    @classmethod
+    def none_found(cls, tier: str) -> "Violation":
+        """What to say when the repo hides nothing yet -- the greenfield case."""
+        return cls(
+            found=False,
+            module=None,
+            import_line=None,
+            target_file=None,
+            expected_mention=None,
+            next_step=(
+                f"Nothing under {tier} keeps a name behind its public surface, so "
+                "there is no existing boundary to prove the check on. That is the "
+                "greenfield case the example package is for: run `scaffold`, then "
+                "run this again."
+            ),
+        )
+
+
+def find_violation(repo_root: Path, repo: Repo) -> Violation:
     """Find a private name the repo already has, and somewhere to import it from.
 
     Step 5 has to watch the check go red on something. Scaffolding an example
@@ -499,92 +533,95 @@ def find_violation(repo_root: Path, repo: Repo) -> dict:
     skill just wrote and therefore knows to be well-formed. A private name the
     project already has is both cheaper and better evidence.
 
-    Reports rather than raises when there is nothing to find: a repo with no
-    private names is the greenfield case the example package exists for, which
-    is a next step and not a failure.
+    Reports rather than raises when there is nothing to find: a repo that hides
+    nothing yet is a next step, not a failure.
     """
-    source_dir = (repo_root / repo.package_root).parent
-    for package in _packages_in_tier(repo_root, repo):
-        candidate = _private_import_in(package, source_dir)
-        if candidate is None:
+    source_dir = repo_root / repo.source_roots[0]
+    for module_path in _modules_in_tier(repo_root, repo):
+        candidate = _private_import_in(module_path, source_dir)
+        target = _module_outside(repo_root, repo, module_path)
+        if candidate is None or target is None:
             continue
         module, name = candidate
-        target = _module_outside(repo_root, repo, package)
-        if target is None:
-            continue
         path = f"{module}.{name}"
-        return {
-            "found": True,
-            "package": ".".join(package.relative_to(source_dir).parts),
-            "import_line": f"from {module} import {name}  # noqa: F401",
-            "target_file": _relative(target, repo_root),
-            "expected_mention": path,
-            "next_step": (
+        return Violation(
+            found=True,
+            module=_module_name_of(module_path, source_dir),
+            import_line=f"from {module} import {name}  # noqa: F401",
+            target_file=_relative(target, repo_root),
+            expected_mention=path,
+            next_step=(
                 f"Append import_line to target_file, run the check, and read {path} "
                 "back out of the report. Then remove the line and watch it go green."
             ),
-        }
-    return {
-        "found": False,
-        "package": None,
-        "import_line": None,
-        "target_file": None,
-        "expected_mention": None,
-        "next_step": (
-            "No private name outside a package's public surface was found, which is "
-            "the greenfield case: run `scaffold` to get one, then run this again."
-        ),
-    }
+        )
+    return Violation.none_found(repo.package_tier)
 
 
-def _packages_in_tier(repo_root: Path, repo: Repo) -> list[Path]:
-    """The candidate deep modules: importable, public, in the package tier."""
+def _modules_in_tier(repo_root: Path, repo: Repo) -> list[Path]:
+    """Everything at the package tier that the module glob makes a tach module.
+
+    A package is the shape this skill is about, but a loose module beside one is
+    a tach module too, and tach guards its private names identically. Skipping
+    those would report "nothing to prove it on" at a repo that has a perfectly
+    good violation sitting in ``helpers.py``.
+
+    Privately named entries are left out: whether the glob claims them or they
+    fall to ``<root>`` decides whether reaching into one is a violation at all,
+    and a proof step must not hand back an import that might stay green.
+    """
     tier = repo_root / repo.package_tier
     if not tier.is_dir():
         return []
     return [
         child
         for child in sorted(tier.iterdir())
-        if child.is_dir()
-        and (child / "__init__.py").is_file()
-        and not child.name.startswith((".", "_"))
+        if not child.name.startswith((".", "_"))
+        and (
+            (child.is_dir() and (child / "__init__.py").is_file())
+            or (child.is_file() and child.suffix == ".py")
+        )
     ]
 
 
-def _private_import_in(package: Path, source_dir: Path) -> tuple[str, str] | None:
-    """A ``(module, name)`` pair inside ``package`` that no outsider may import.
+def _private_import_in(module_path: Path, source_dir: Path) -> tuple[str, str] | None:
+    """A ``(module, name)`` pair inside ``module_path`` that no outsider may import.
 
-    Two shapes qualify, and both are violations of the same rule: a public
-    module holding a private definition, and a private module holding anything
-    at all. Private modules come first -- ``_internal/_totals.py`` is the shape
-    the convention doc teaches, so it is the one worth showing.
+    Two shapes qualify, and both break the same rule: a private module holding
+    anything at all, and a public module holding a private definition. Private
+    modules win where a package has both -- ``_internal/_totals.py`` is the shape
+    the convention doc teaches, so it is the one worth showing back.
     """
-    by_private_module: list[tuple[str, str]] = []
-    by_private_name: list[tuple[str, str]] = []
+    fallback: tuple[str, str] | None = None
 
-    for path in sorted(package.rglob("*.py")):
-        if "__pycache__" in path.parts:
-            continue
-        module = _module_path(path, source_dir)
+    for path in _source_files(module_path):
+        module = _module_name_of(path, source_dir)
         hidden = any(part.startswith("_") for part in module.split("."))
         for name in _definitions_in(path):
             if hidden:
-                by_private_module.append((module, name))
-            elif name.startswith("_"):
-                by_private_name.append((module, name))
-
-    for candidates in (by_private_module, by_private_name):
-        if candidates:
-            return candidates[0]
-    return None
+                return module, name
+            if name.startswith("_") and fallback is None:
+                fallback = (module, name)
+    return fallback
 
 
-def _module_path(path: Path, source_dir: Path) -> str:
-    """The dotted name an importer would write for a file under a source root."""
+def _source_files(module_path: Path) -> list[Path]:
+    """The files behind one tach module: a package's whole tree, or one module."""
+    if module_path.is_file():
+        return [module_path]
+    return [
+        path
+        for path in sorted(module_path.rglob("*.py"))
+        if "__pycache__" not in path.parts
+    ]
+
+
+def _module_name_of(path: Path, source_dir: Path) -> str:
+    """The dotted name an importer would write for a path under a source root."""
     relative = path.relative_to(source_dir)
-    parts = list(relative.parts[:-1] if path.name == "__init__.py" else relative.parts)
-    if path.name != "__init__.py":
-        parts[-1] = path.stem
+    if path.is_file() and path.name != "__init__.py":
+        return ".".join([*relative.parts[:-1], path.stem])
+    parts = relative.parts[:-1] if path.name == "__init__.py" else relative.parts
     return ".".join(parts)
 
 
@@ -603,22 +640,22 @@ def _definitions_in(path: Path) -> list[str]:
     return pattern.findall(source)
 
 
-def _module_outside(repo_root: Path, repo: Repo, package: Path) -> Path | None:
-    """A file to put the violating import in: checked by tach, outside ``package``.
+def _module_outside(repo_root: Path, repo: Repo, module_path: Path) -> Path | None:
+    """A file to put the violating import in: checked by tach, outside the module.
 
-    Prefers a loose module at the app tier -- the ``app.py`` sort of file that
-    imports packages for a living -- over the root package's own ``__init__.py``,
-    which is a worse place to leave a line behind if a run is interrupted.
+    Prefers a loose module at the root package level -- the ``app.py`` sort of
+    file that imports packages for a living -- over the root package's own
+    ``__init__.py``, which is a worse place to leave a line behind if a run is
+    interrupted partway through the cycle.
     """
     package_root = repo_root / repo.package_root
-    loose = [
-        path
-        for path in sorted(package_root.glob("*.py"))
-        if path.name != "__init__.py"
-    ]
+    loose = [path for path in sorted(package_root.glob("*.py")) if path.name != "__init__.py"]
     for candidate in [*loose, package_root / "__init__.py"]:
-        if candidate.is_file() and package not in candidate.parents:
-            return candidate
+        if not candidate.is_file():
+            continue
+        if candidate == module_path or module_path in candidate.parents:
+            continue
+        return candidate
     return None
 
 
@@ -753,7 +790,7 @@ def main(argv: list[str] | None = None) -> int:
         elif arguments.command == "scaffold":
             _report(scaffold(repo_root, detect(repo_root), name=arguments.name))
         elif arguments.command == "find-violation":
-            print(json.dumps(find_violation(repo_root, detect(repo_root)), indent=2))
+            print(json.dumps(asdict(find_violation(repo_root, detect(repo_root))), indent=2))
         elif arguments.command == "document":
             _report(document(repo_root, detect(repo_root), force=arguments.force))
     except SkillError as error:

@@ -36,7 +36,8 @@ def test_the_proof_cycle_against_an_existing_private_name(user_repo: RepoBuilder
     violation = repo.violation()
     assert violation["found"], violation
 
-    assert repo.check().passed
+    clean = repo.check()
+    assert clean.passed, clean.output
 
     repo.append(violation["target_file"], violation["import_line"])
     violated = repo.check()
@@ -44,7 +45,8 @@ def test_the_proof_cycle_against_an_existing_private_name(user_repo: RepoBuilder
     assert violated.mentions(violation["expected_mention"]), violated.output
 
     repo.remove(violation["target_file"], violation["import_line"])
-    assert repo.check().passed
+    reverted = repo.check()
+    assert reverted.passed, reverted.output
 
 
 #: The shape the convention doc teaches: implementation behind ``_internal/``.
@@ -65,7 +67,8 @@ def test_a_private_module_is_preferred_over_a_private_name(user_repo: RepoBuilde
     repo = user_repo(
         "src", files={**PACKAGE_WITH_A_PRIVATE_FUNCTION, **PACKAGE_WITH_A_PRIVATE_MODULE}
     )
-    assert repo.configure().passed
+    configured = repo.configure()
+    assert configured.passed, configured.output
 
     violation = repo.violation()
     assert violation["expected_mention"] == "acme_widgets.pricing._internal._totals.total_due"
@@ -79,13 +82,15 @@ def test_a_private_module_is_preferred_over_a_private_name(user_repo: RepoBuilde
 def test_a_repo_with_no_private_names_is_told_to_scaffold(user_repo: RepoBuilder) -> None:
     """The greenfield case, which is what the example package is really for."""
     repo = user_repo("src")
-    assert repo.configure().passed
+    configured = repo.configure()
+    assert configured.passed, configured.output
 
     violation = repo.violation()
     assert not violation["found"]
     assert "scaffold" in violation["next_step"]
 
-    assert repo.scaffold().passed
+    scaffolded = repo.scaffold()
+    assert scaffolded.passed, scaffolded.output
     after = repo.violation()
     assert after["found"], after
 
@@ -104,11 +109,78 @@ def test_the_import_never_lands_inside_the_package_it_violates(
         path.replace("src/", ""): contents
         for path, contents in PACKAGE_WITH_A_PRIVATE_MODULE.items()
     })
-    assert repo.configure().passed
+    configured = repo.configure()
+    assert configured.passed, configured.output
 
     violation = repo.violation()
     assert violation["found"], violation
     assert not violation["target_file"].startswith("acme_widgets/pricing/")
 
     repo.append(violation["target_file"], violation["import_line"])
-    assert not repo.check().passed
+    violated = repo.check()
+    assert not violated.passed, violated.output
+
+
+def test_the_proof_works_when_the_tier_sits_beside_the_root_package(
+    user_repo: RepoBuilder,
+) -> None:
+    """A repo keeping its packages in ``src/packages/`` puts the violating
+    import in a module the tier does not contain, so the target has to be a
+    file tach still checks -- which is what ``root_module = "allow"`` buys."""
+    repo = user_repo("src", files={
+        "src/packages/__init__.py": '"""Existing package tier."""\n',
+        "src/packages/pricing/__init__.py": (
+            '"""Pricing."""\n\nfrom ._internal._totals import total_due\n\n'
+            '__all__ = ["total_due"]\n'
+        ),
+        "src/packages/pricing/_internal/__init__.py": '"""Implementation."""\n',
+        "src/packages/pricing/_internal/_totals.py": (
+            '"""Totals."""\n\n\ndef total_due(cents: int) -> int:\n    return cents\n'
+        ),
+    })
+    configured = repo.configure()
+    assert configured.passed, configured.output
+
+    violation = repo.violation()
+    assert violation["expected_mention"] == "packages.pricing._internal._totals.total_due"
+
+    repo.append(violation["target_file"], violation["import_line"])
+    violated = repo.check()
+    assert not violated.passed, violated.output
+    assert violated.mentions(violation["expected_mention"]), violated.output
+
+
+def test_a_private_name_in_a_loose_module_counts(user_repo: RepoBuilder) -> None:
+    """The tier's glob makes a loose ``helpers.py`` a tach module like any
+    package, and tach guards its private names the same way. Skipping those
+    reported "nothing to prove it on" at a repo that had a violation to hand."""
+    repo = user_repo("src", files={
+        "src/acme_widgets/helpers.py": (
+            '"""Helpers."""\n\n\ndef _shorten(text: str) -> str:\n    return text[:8]\n'
+        ),
+    })
+    configured = repo.configure()
+    assert configured.passed, configured.output
+
+    violation = repo.violation()
+    assert violation["found"], violation
+    assert violation["expected_mention"] == "acme_widgets.helpers._shorten"
+    assert violation["target_file"] != "src/acme_widgets/helpers.py"
+
+    repo.append(violation["target_file"], violation["import_line"])
+    violated = repo.check()
+    assert not violated.passed, violated.output
+    assert violated.mentions(violation["expected_mention"]), violated.output
+
+
+def test_the_import_goes_in_a_loose_module_rather_than_an_init(
+    user_repo: RepoBuilder,
+) -> None:
+    """``__init__.py`` is the worse place to leave a stray line behind if the
+    cycle is interrupted, so a loose module at the app tier wins where there is
+    one. Both are checked by tach, so this is about tidiness, not correctness."""
+    repo = user_repo("src", files=PACKAGE_WITH_A_PRIVATE_MODULE)
+    configured = repo.configure()
+    assert configured.passed, configured.output
+
+    assert repo.violation()["target_file"] == "src/acme_widgets/app.py"

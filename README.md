@@ -60,7 +60,13 @@ Python repo:
 > convention. It will not tell you it worked without having watched
 > `tach check` fail on a real violation first.
 
-## What your repo looks like afterwards
+## The shape it enforces
+
+`tach.toml` is generic, so this is the shape your own packages take rather than
+a tree the skill deposits. `billing/` and `notifications/` below come from the
+fixture CI proves on every push, and the skill will offer you a copy of one as a
+worked example — take it on a greenfield repo, decline it where you already have
+packages of your own.
 
 ```
 src/myproject/

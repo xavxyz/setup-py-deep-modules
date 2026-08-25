@@ -107,7 +107,7 @@ Any private name in any package is a valid violation, so use one the repo alread
 python3 "$SETUP" find-violation
 ```
 
-JSON: an `import_line`, the `target_file` to put it in, and the `expected_mention` the report should come back with. Where `found` is false the repo has no private names yet — the greenfield case the example package is really for — so run step 4's `scaffold` and ask again.
+JSON: an `import_line`, the `target_file` to put it in, and the `expected_mention` the report should come back with. It searches every package at the tier, and the loose modules beside them. Where `found` is false the repo keeps nothing behind a public surface yet — the greenfield case the example package is really for — so run step 4's `scaffold` and ask again.
 
 ```sh
 <check_command>          # green
