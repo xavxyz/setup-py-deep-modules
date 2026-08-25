@@ -535,10 +535,12 @@ def _add_pointer(repo_root: Path, repo: Repo, doc_path: str) -> str:
     has already touched must not stack up duplicates.
     """
     path = repo_root / repo.agent_file
+    # Always-loaded context in that repo, so it is pruned hard: what the
+    # material is, and the two branches that should send an agent to it.
+    # "machine-checked" is the whole of why it is a constraint and not advice.
     pointer = (
-        f"- Package boundaries are enforced: read `{doc_path}` before adding or "
-        "importing a package. `tach check` fails on imports that reach past a "
-        "package's public surface.\n"
+        f"- Package boundaries are machine-checked: read `{doc_path}` before "
+        "adding a package, or importing across one.\n"
     )
     if path.is_file():
         existing = path.read_text()

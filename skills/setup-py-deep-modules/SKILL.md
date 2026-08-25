@@ -1,18 +1,18 @@
 ---
 name: setup-py-deep-modules
-description: Wire tach into a Python repo so each package hides its implementation behind a small public interface, reachable only through names without a leading underscore. User-invoked.
+description: Wire tach into a Python repo so each package hides its implementation behind a small public interface, reachable only through names without a leading underscore.
 disable-model-invocation: true
 ---
 
 # Setup Py Deep Modules
 
-Someone arriving at `payments/` — a person or an agent — should learn everything the package offers by reading **one** file, and should be able to trust that reading. Python gives you no way to make that true: a leading underscore and a docstring are advisory, nothing fails when they are ignored, so over time they are ignored. Callers reach into internals, every file becomes load-bearing for every other, and the cost of understanding any single package grows without limit.
+Someone arriving at `payments/` — a person or an agent — should learn everything the package offers by reading **one** file, and should be able to trust that reading. Python gives you no way to make that true: a leading underscore and a docstring are advisory, so over time they are ignored, every file becomes load-bearing for every other, and the cost of understanding any single package grows without limit.
 
-The idea being enforced here is the **deep module**: a lot of behaviour behind a small interface. A module's **interface** is everything a caller must know to use it; its **depth** is the ratio of the behaviour it provides to the size of that interface. A deep module is one where that ratio is high — a small surface, a lot behind it. A shallow one has an interface nearly as large as its implementation, so it hides nothing and buys nothing. The term is John Ousterhout's, from *A Philosophy of Software Design* (2018).
+The idea being enforced here is the **deep module**: a lot of behaviour behind a small interface. A module's **interface** is everything a caller must know to use it; its **depth** is the ratio of behaviour provided to the size of that interface. Deep is a small surface with a lot behind it; shallow is an interface nearly as large as its implementation, which hides nothing and buys nothing. The term is John Ousterhout's, from *A Philosophy of Software Design* (2018).
 
 That paragraph is all the vocabulary this skill needs. If the `codebase-design` skill is installed, call it and use its language throughout.
 
-That boundary is made mechanical with [tach](https://github.com/tach-org/tach): a package's public surface is every name that does **not** start with an underscore, and `tach check` fails on any import that reaches past it.
+[tach](https://github.com/tach-org/tach) makes the boundary mechanical: a package's public surface is every name that does **not** start with an underscore, and `tach check` fails on any import reaching past it.
 
 ## The shape this enforces
 
@@ -29,31 +29,26 @@ scripts/
   check_cycles.py   ← rejects import cycles between packages
 ```
 
-That shape is committed in this repo under `fixture/`, checked by CI, and is the example the skill scaffolds — so what you copy is what is proven.
+That is the fixture CI proves on every push, and the example step 4 copies — so what a user gets is what is proven.
 
-Five rules, the first four checked by `tach check`:
+Four rules `tach check` enforces:
 
-1. **Public means no underscore.** Code outside a package may import `myproject.billing` and `myproject.billing.quote`, never `myproject.billing._internal` or anything inside it. The rule is generic: adding a package, or a private folder inside one, never means editing the config.
-2. **Freedom inside.** A package's own modules import each other however they like. The rule constrains what crosses the package boundary, not how the implementation behind it is arranged.
-3. **Tests go through the interface too.** Tests live at the repo root, which makes them code outside every package, so the same rule already forces them through the public surface. A passing suite is evidence the interface is usable.
-4. **`__init__.py` is the interface.** Re-export explicit names and list them in `__all__`. Keep the surface enumerable: `from ._internal import *` makes it unenumerable, which is the one thing this whole exercise is buying.
-5. **No cycles between packages.** Checked by `python scripts/check_cycles.py`, not by `tach check`: tach's `forbid_circular_dependencies` only looks at dependencies *declared* in `tach.toml`, and the generic rule declares none. The script reads the real import graph from `tach map` instead, and needs no per-package configuration either.
+1. **Public means no underscore.** From outside, `myproject.billing` and `myproject.billing.quote`, never `myproject.billing._internal`. Adding a package, or a private folder inside one, needs no edit to the config.
+2. **Freedom inside.** A package's own modules import each other however they like. The rule governs the boundary, not the implementation behind it.
+3. **Tests too.** A top-level `tests/` is code outside every package, so the same rule already forces it through the public surfaces.
+4. **`__init__.py` is the interface.** Named re-exports listed in `__all__`, which keeps the surface enumerable — the one thing this whole exercise buys.
 
-Layering — *which* packages may depend on which — is a different concern, and ships as a commented stub in the config for you to fill in.
+And one it cannot: **no cycles between packages**, caught by `scripts/check_cycles.py`. Tach's `forbid_circular_dependencies` only sees dependencies *declared* in `tach.toml`, and the generic rule declares none; the script reads the real graph from `tach map`, and needs no per-package config either.
 
-## Running this skill
+Layering — *which* packages may depend on which — ships as a commented stub in the config.
 
-Six steps, in order. The mechanical parts — reading the layout, rendering the
-config, copying the example, writing the doc — are one script, so they come out
-the same every run:
+## Steps
+
+One script does the mechanical half. Run everything from the root of the user's repo.
 
 ```sh
 SETUP="${CLAUDE_PLUGIN_ROOT}/skills/setup-py-deep-modules/scripts/setup_deep_modules.py"
 ```
-
-Run every command from the root of the user's repo, with a Python 3.11 or newer
-interpreter. Everything the script writes is derived from `fixture/` in this
-plugin, which CI proves on every push — so what a user gets is what is proven.
 
 ### 1. Detect
 
@@ -61,33 +56,19 @@ plugin, which CI proves on every push — so what a user gets is what is proven.
 python3 "$SETUP" detect
 ```
 
-JSON: the layout (src or flat), the root package, the source roots, the package
-tier and its module glob, the package manager, the exact install command, the
-`check_command` and `cycle_command` to use from step 5 onwards, and the tach
-pin. Read it, then tell the user in a sentence what you found — the
-layout, the package manager, and where packages will live.
+Facts as JSON. Use the reported `install_command`, `check_command` and `cycle_command` verbatim from here on: `uv add` and friends put tach in the project's environment rather than on your PATH, and a bare `tach check` then fails for a reason that looks exactly like the failure step 5 is waiting for.
 
-If it exits non-zero it has found something it must not guess at: no
-`pyproject.toml`, or several candidate root packages. Relay the message and ask
-the user, rather than picking for them.
+Tell the user the layout, the package manager, and where packages will live. A non-zero exit is a question for them — no `pyproject.toml`, or several candidate root packages — so relay it rather than picking.
 
-An existing `packages/` directory shows up as the package tier. That is
-deliberate: a repo with that convention keeps it.
+**Done when:** you can name the root package, the source roots and the package manager.
 
 ### 2. Install
 
-Run the `install_command` from step 1 verbatim. It carries a compatible-minor
-pin (`tach~=0.x.0`), so patches flow and a breaking minor does not.
+Run `install_command`. Where `records_dependency` is false — the pip case — also write `tach_requirement` into `dependency_file`, under `dependency_target`: a pin nobody records is not a pin.
 
-If `records_dependency` is false — the pip case — the install records nothing,
-so the pin is yours to write down: add `tach_requirement` to the reported
-`dependency_file`, under `dependency_target`, before or after installing. A pin
-nobody records is not a pin.
+Step 3 writes the config directly, which is the point of it. `tach mod` is interactive, and `tach sync` writes down the dependencies that happen to exist today, cementing the current structure as the rule.
 
-**Do not run `tach mod` or `tach sync`.** `mod` is interactive and you cannot
-drive it. `sync` writes down the dependencies that happen to exist today,
-cementing the current structure as the rule — the opposite of what is being
-installed here.
+**Done when:** `check_command` runs and reports on the repo, rather than reporting a missing command.
 
 ### 3. Configure
 
@@ -95,20 +76,11 @@ installed here.
 python3 "$SETUP" configure
 ```
 
-Writes `tach.toml` (the generic rule, rendered for this repo's roots and package
-tier) and `scripts/check_cycles.py`. It refuses to overwrite an existing
-`tach.toml`: if it does, read that file, discuss it with the user, and re-run
-with `--force` only if they agree.
+Writes `tach.toml` and `scripts/check_cycles.py`, and appends a `tach check` hook to a `.pre-commit-config.yaml` that already exists. Read its output and act on it: it refuses to overwrite files it did not write, and names each one it left alone.
 
-The output ends with what happened about pre-commit. A repo that already has a
-`.pre-commit-config.yaml` gets a `tach check` hook appended to it; read the file
-back, and if it groups its hooks deliberately, move the block to where it
-belongs. A repo without one does not get one — pre-commit is a tool the user has
-not chosen.
+For CI, say in prose where their pipeline should run `check_command` and `cycle_command`. Their workflow is theirs to edit.
 
-Do not write a CI workflow either. Explain in prose instead: their CI needs to
-install the dev dependencies and run the two commands from step 1
-(`check_command` and `cycle_command`), wherever it already runs their linters.
+**Done when:** `tach.toml` exists and you have relayed every refusal.
 
 ### 4. Scaffold
 
@@ -116,50 +88,28 @@ install the dev dependencies and run the two commands from step 1
 python3 "$SETUP" scaffold
 ```
 
-Copies a worked example into the package tier: a public surface in
-`__init__.py`, a further entry point in `quote.py`, and the behaviour behind
-both in `_internal/`. It delegates rather than passing through, which is the
-part worth copying.
+A worked example package that delegates to `_internal/` rather than passing through — the part worth copying. Relay the script's line about copying its shape or deleting it.
 
-Tell the user it is a starter: copy its shape, then `rm -rf` it. Nothing in
-their repo imports it, so it deletes cleanly.
+**Done when:** the example sits in the package tier.
 
-### 5. Prove
+### 5. Prove: red, then green
 
-Nothing so far is evidence. A misconfigured `tach.toml` passes just as quietly
-as a correct one, so **this step is the completion criterion: you must see the
-check fail on a real violation, and you must not report success without it.**
-
-Use the `check_command` from step 1 — after `uv add`, `poetry add` or `pdm add`,
-tach lives in the project's environment and not on your PATH, and a "command not
-found" is easily misread as the failure this step is waiting for.
+A misconfigured `tach.toml` passes exactly as quietly as a correct one, so the whole setup is worth nothing until you have watched the check go **red** on a real violation.
 
 ```sh
-uv run tach check               # 1. passes  (or the detected check_command)
-```
-
-If this first run *fails*, the repo has boundary violations already. That is a
-real finding, not an error — report them to the user as existing debt to fix,
-and carry on with the cycle below, watching for the specific import you add
-rather than for the overall exit code.
-
-```sh
-# 2. must fail, naming the import
+<check_command>          # green
 echo "from <tier>.billing._internal._totals import total_due  # noqa: F401" >> <a module outside billing>
-uv run tach check
+<check_command>          # red, naming that import
+# revert the line
+<check_command>          # green again
+<cycle_command>
 ```
 
-Confirm the report names that import. Then revert it and confirm the check
-returns to where it was in step 1. Also run the `cycle_command`:
+Track your own import by name through the cycle rather than the exit code: a first run that is already red is a finding rather than a fault, and those pre-existing violations are real debt to report.
 
-```sh
-uv run python scripts/check_cycles.py
-```
+If red never arrives, stop here and say so plainly. The usual causes are wrong source roots, tach not on the path you invoked, or an edited module outside the configured tier.
 
-If step 2 does not fail, stop. Do not document anything, and do not tell the
-user it works. Investigate: usually the source roots are wrong, tach is not
-actually on the path you invoked, or the module you edited is not covered by the
-config.
+**Done when:** you have seen the check name your import, and go green again once it is gone.
 
 ### 6. Document
 
@@ -167,15 +117,10 @@ config.
 python3 "$SETUP" document
 ```
 
-Writes the convention doc inside the distribution package — where a reader
-meets it rather than having to search for it — and adds a one-line
-pointer to `CLAUDE.md`, or `AGENTS.md`, creating `AGENTS.md` if the repo has
-neither. It refuses to overwrite an existing README; if so, fold the convention
-into that file by hand instead.
+Writes the convention doc inside the distribution package, and a one-line pointer into `CLAUDE.md` or `AGENTS.md`. If it refuses because a README is already there, fold the convention into that file by hand.
 
-### Finally
+**Done when:** the doc and the pointer both exist.
 
-Report to the user: what was detected, what was installed and written, **that
-you watched the check fail on a violation and pass again afterwards**, any
-pre-existing violations you found, how to run the check, and that the example
-package is theirs to copy or delete.
+### Report
+
+What was detected, what was installed and written, **that you watched the check go red on a violation and green again afterwards**, any pre-existing violations, the two check commands, and that the example package is theirs to copy or delete.
