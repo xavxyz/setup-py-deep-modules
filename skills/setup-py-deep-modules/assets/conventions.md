@@ -32,6 +32,9 @@ is arranged.
       _totals.py
 ```
 
+`{{EXAMPLE}}` above is an illustration, not necessarily a package in this repo:
+the shape applies to every package under `{{PACKAGE_TIER}}/`, whichever they are.
+
 Adding a package, or a private folder inside one, needs no edit to `tach.toml`.
 The rule is written once, generically, and applies to whatever is there.
 

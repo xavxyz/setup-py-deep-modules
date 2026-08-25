@@ -55,9 +55,10 @@ Python repo:
 > [!NOTE]
 > **Status.** The skill runs end to end: it detects your layout and package
 > manager, installs a pinned tach, writes the config and the cycle check,
-> scaffolds an example package, proves the rule bites in your repo, and
-> documents the convention. It will not tell you it worked without having
-> watched `tach check` fail on a real violation first.
+> offers an example package, proves the rule bites in your repo — against a
+> private name you already have, wherever you have one — and documents the
+> convention. It will not tell you it worked without having watched
+> `tach check` fail on a real violation first.
 
 ## What your repo looks like afterwards
 

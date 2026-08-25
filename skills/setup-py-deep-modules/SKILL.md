@@ -29,7 +29,7 @@ scripts/
   check_cycles.py   ← rejects import cycles between packages
 ```
 
-That is the fixture CI proves on every push, and the example step 4 copies — so what a user gets is what is proven.
+That is the fixture CI proves on every push, and the example step 4 offers — so what a user gets is what is proven.
 
 Four rules `tach check` enforces:
 
@@ -85,30 +85,40 @@ For CI, say in prose where their pipeline should run `check_command` and `cycle_
 
 **Done when:** `tach.toml` exists and you have relayed every refusal.
 
-### 4. Scaffold
+### 4. Offer the worked example
 
 ```sh
-python3 "$SETUP" scaffold
+python3 "$SETUP" scaffold        # only when they want it, or step 5 asks for it
 ```
 
-A worked example package that delegates to `_internal/` rather than passing through — the part worth copying. Relay the script's line about copying its shape or deleting it.
+An example package that delegates to `_internal/` rather than passing through — the part worth copying. Nothing in `tach.toml`, in `scripts/check_cycles.py`, or in their CI refers to it, so on a repo that already has packages it is a new domain concept sitting next to the real ones, and it is theirs to want.
 
-**Done when:** the example sits in the package tier.
+**Offer it; do not run it by default.** Describe what it is and let them answer. Step 6 documents the same shape in prose either way.
+
+**Done when:** they have taken it or turned it down — and if they took it, you have relayed the script's line about copying its shape or deleting it.
 
 ### 5. Prove: red, then green
 
 A misconfigured `tach.toml` passes exactly as quietly as a correct one, so the whole setup is worth nothing until you have watched the check go **red** on a real violation.
 
+Any private name in any package is a valid violation, so use one the repo already has. That is the stronger proof: it exercises a boundary the project actually has, rather than one this skill just wrote and therefore knows to be well-formed.
+
+```sh
+python3 "$SETUP" find-violation
+```
+
+JSON: an `import_line`, the `target_file` to put it in, and the `expected_mention` the report should come back with. Where `found` is false the repo has no private names yet — the greenfield case the example package is really for — so run step 4's `scaffold` and ask again.
+
 ```sh
 <check_command>          # green
-echo "from <tier>.billing._internal._totals import total_due  # noqa: F401" >> <a module outside billing>
-<check_command>          # red, naming that import
+echo "<import_line>" >> <target_file>
+<check_command>          # red, naming <expected_mention>
 # revert the line
 <check_command>          # green again
 <cycle_command>
 ```
 
-Track your own import by name through the cycle rather than the exit code: a first run that is already red is a finding rather than a fault, and those pre-existing violations are real debt to report.
+Track your own import by name through the cycle rather than the exit code. **On a repo that was not written to this rule, the very first `check_command` may already be red**, and often is: interface violations and cycles that were free until today. That is a finding, not a fault, and not a reason to stop — it is what separates "the checker works" from "the checker happens to be failing". Report those pre-existing violations as the real debt they are, and leave fixing them to a separate piece of work.
 
 If red never arrives, stop here and say so plainly. The usual causes are wrong source roots, tach not on the path you invoked, or an edited module outside the configured tier.
 
@@ -126,4 +136,4 @@ Writes the convention doc inside the distribution package, and a one-line pointe
 
 ### Report
 
-What was detected, what was installed and written, **that you watched the check go red on a violation and green again afterwards**, any pre-existing violations, the two check commands, and that the example package is theirs to copy or delete.
+What was detected, what was installed and written, **that you watched the check go red on a violation and green again afterwards**, any pre-existing violations, the two check commands, and — if they took it — that the example package is theirs to copy or delete.
