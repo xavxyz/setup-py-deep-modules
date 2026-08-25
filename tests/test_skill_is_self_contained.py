@@ -73,10 +73,17 @@ def test_every_write_step_runs_from_a_skill_only_install(
     ``configure`` reads the fixture's config and cycle check, ``scaffold`` copies
     its example package, and ``document`` renders the template from ``assets/``.
     A test that stopped at ``detect`` would leave three of them unproven.
+    ``find-violation`` reads only the user's repo, and is here because step 5
+    cannot run without it.
     """
     repo = user_repo(script=installed_skill.script)
 
-    for step in (repo.configure(), repo.scaffold(), repo.document()):
+    for step in (
+        repo.configure(),
+        repo.scaffold(),
+        repo.find_violation(),
+        repo.document(),
+    ):
         assert step.passed, step.output
 
     assert repo.exists("tach.toml")

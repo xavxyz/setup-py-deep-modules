@@ -164,6 +164,15 @@ class UserRepo(Project):
     def document(self, *args: str) -> CommandResult:
         return self.skill("document", *args)
 
+    def find_violation(self, *args: str) -> CommandResult:
+        return self.skill("find-violation", *args)
+
+    def violation(self) -> dict:
+        """The violation search, parsed. Fails loudly if the search did not run."""
+        result = self.find_violation()
+        assert result.passed, result.output
+        return json.loads(result.output)
+
     def skill(self, *args: str) -> CommandResult:
         return self._invoke([str(self.script), *args])
 
