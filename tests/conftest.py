@@ -10,13 +10,14 @@ copy. Neither takes its contents as evidence that the rule works.)
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 
 import pytest
 
@@ -118,3 +119,109 @@ def project(tmp_path: Path) -> Project:
         ignore=shutil.ignore_patterns("__pycache__", "*.egg-info", ".pytest_cache"),
     )
     return Project(root)
+
+
+SKILL_SCRIPT = (
+    Path(__file__).resolve().parent.parent
+    / "skills"
+    / "setup-py-deep-modules"
+    / "scripts"
+    / "setup_deep_modules.py"
+)
+
+
+class UserRepo(Project):
+    """A synthetic repo standing in for the one a user runs the skill in.
+
+    It is a ``Project`` too, so the same ``check``/``check_cycles`` assertions
+    that prove the fixture apply to a repo the skill has just set up -- which is
+    the point: what the skill writes has to bite the same way.
+    """
+
+    def detect(self) -> CommandResult:
+        return self.skill("detect")
+
+    def facts(self) -> dict:
+        """The detection result, parsed. Fails loudly if detection did not run."""
+        result = self.detect()
+        assert result.passed, result.output
+        return json.loads(result.output)
+
+    def configure(self, *args: str) -> CommandResult:
+        return self.skill("configure", *args)
+
+    def scaffold(self, *args: str) -> CommandResult:
+        return self.skill("scaffold", *args)
+
+    def document(self, *args: str) -> CommandResult:
+        return self.skill("document", *args)
+
+    def skill(self, *args: str) -> CommandResult:
+        return self._invoke([str(SKILL_SCRIPT), *args])
+
+    def exists(self, relative_path: str) -> bool:
+        return (self.root / relative_path).exists()
+
+
+#: What the ``user_repo`` fixture hands a test: a builder for one synthetic repo.
+RepoBuilder = Callable[..., "UserRepo"]
+
+
+@pytest.fixture
+def user_repo(tmp_path: Path) -> RepoBuilder:
+    """Builds a synthetic user repo of a given layout, on demand.
+
+    Layouts are built by hand rather than copied from the fixture: the whole
+    question these tests answer is whether the skill copes with a project it did
+    not write, so the input must not be the thing it is about to produce.
+    """
+
+    def build(
+        layout: str = "src",
+        *,
+        name: str = "acme-widgets",
+        package: str = "acme_widgets",
+        pyproject: str | None = None,
+        files: dict[str, str] | None = None,
+        tests: bool = True,
+    ) -> UserRepo:
+        root = tmp_path / "user_repo"
+        root.mkdir(exist_ok=True)
+        repo = UserRepo(root)
+
+        if pyproject is None:
+            pyproject = DEFAULT_PYPROJECT.format(name=name, layout_config=(
+                SETUPTOOLS_SRC if layout == "src" else ""
+            ))
+        repo.write("pyproject.toml", pyproject)
+
+        package_root = f"src/{package}" if layout == "src" else package
+        repo.write(f"{package_root}/__init__.py", '"""The user\'s own code."""\n')
+        repo.write(
+            f"{package_root}/app.py",
+            '"""A loose module at the root package level."""\n\n\n'
+            "def run() -> str:\n    return 'ok'\n",
+        )
+        if tests:
+            repo.write(
+                "tests/test_app.py",
+                f"from {package}.app import run\n\n\ndef test_run():\n    assert run() == 'ok'\n",
+            )
+        for relative_path, contents in (files or {}).items():
+            repo.write(relative_path, contents)
+        return repo
+
+    return build
+
+
+DEFAULT_PYPROJECT = """[project]
+name = "{name}"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = []
+{layout_config}"""
+
+SETUPTOOLS_SRC = """
+[tool.setuptools.packages.find]
+where = ["src"]
+"""

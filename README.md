@@ -53,10 +53,11 @@ Python repo:
 ```
 
 > [!NOTE]
-> **Status.** The plugin installs and the skill is invocable, but its steps are
-> not wired up yet: invoked today, it explains what it will do and stops. The
-> shape and the config below are settled; the automation is what is still
-> landing.
+> **Status.** The skill runs end to end: it detects your layout and package
+> manager, installs a pinned tach, writes the config and the cycle check,
+> scaffolds an example package, proves the rule bites in your repo, and
+> documents the convention. It will not tell you it worked without having
+> watched `tach check` fail on a real violation first.
 
 ## What your repo looks like afterwards
 
