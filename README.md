@@ -39,14 +39,25 @@ past it.
 
 ## Install
 
-One command, in Claude Code:
+Install it for your user, not into the repo you run it on: a project-level
+install commits the skill into a repository that is not about the skill.
+
+In Claude Code, as a plugin:
 
 ```
-npx skills xavxyz/setup-py-deep-modules
+/plugin marketplace add xavxyz/setup-py-deep-modules
+/plugin install setup-py-deep-modules@setup-py-deep-modules
 ```
 
-That adds the marketplace and offers the plugin for install. Then, in your
-Python repo:
+For other agents, with the [`skills`](https://github.com/vercel-labs/skills)
+CLI — `-g` is what makes it user-level, since the default writes into the
+repository you run it from:
+
+```
+npx skills add xavxyz/setup-py-deep-modules -g
+```
+
+Then, in your Python repo:
 
 ```
 /setup-py-deep-modules

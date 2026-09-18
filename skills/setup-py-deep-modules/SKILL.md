@@ -137,3 +137,5 @@ Writes the convention doc inside the distribution package, and a one-line pointe
 ### Report
 
 What was detected, what was installed and written, **that you watched the check go red on a violation and green again afterwards**, any pre-existing violations, the two check commands, and — if they took it — that the example package is theirs to copy or delete.
+
+Then check the working tree for this skill's own install files: `.agents/skills/setup-py-deep-modules/`, a `.claude/skills/setup-py-deep-modules` link, and a `skills-lock.json` pinning this skill. A project-level install leaves them there, and nothing about them belongs to the target repository. If any are present, name them and tell the user to leave them out of the commit. Do not delete them or add them to `.gitignore`: this skill did not write them, so they are not its to remove.
