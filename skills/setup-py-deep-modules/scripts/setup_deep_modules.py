@@ -22,6 +22,7 @@ Usage, from the root of the repo being set up:
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import re
 import shutil
@@ -507,8 +508,16 @@ class Violation:
     next_step: str
 
     @classmethod
-    def none_found(cls, tier: str) -> "Violation":
-        """What to say when the repo hides nothing yet -- the greenfield case."""
+    def none_found(cls, tier: str, scaffold_name: str) -> "Violation":
+        """What to say when the repo hides nothing yet -- the greenfield case.
+
+        The package ``scaffold`` writes here is a proof scaffold, not a worked
+        example: it exists only to give the proof something to go red on, so
+        like the appended import it goes once the check is green again.
+        ``scaffold_name`` is free at the tier, and it is the one name both the
+        ``scaffold`` and the ``rm -rf`` use: a removal aimed at the default
+        name would delete a package of the user's that happened to have it.
+        """
         return cls(
             found=False,
             module=None,
@@ -517,9 +526,12 @@ class Violation:
             expected_mention=None,
             next_step=(
                 f"Nothing under {tier} keeps a name behind its public surface, so "
-                "there is no existing boundary to prove the check on. That is the "
-                "greenfield case the example package is for: run `scaffold`, then "
-                "run this again."
+                "there is no existing boundary to prove the check on. Write a proof "
+                f"scaffold: run `scaffold --name {scaffold_name}`, then run this "
+                "again and prove the check on what it finds. The scaffold is part "
+                "of the proof, not a worked example the user chose, so once the "
+                "check is green again, remove "
+                f"it: rm -rf {tier}/{scaffold_name}. Then run the check once more."
             ),
         )
 
@@ -555,7 +567,17 @@ def find_violation(repo_root: Path, repo: Repo) -> Violation:
                 "back out of the report. Then remove the line and watch it go green."
             ),
         )
-    return Violation.none_found(repo.package_tier)
+    return Violation.none_found(
+        repo.package_tier, _free_package_name(repo_root / repo.package_tier)
+    )
+
+
+def _free_package_name(tier_dir: Path) -> str:
+    """The example's own name, or the first variant of it the tier lacks."""
+    candidates = itertools.chain(
+        [EXAMPLE_PACKAGE], (f"{EXAMPLE_PACKAGE}_proof_{n}" for n in itertools.count(1))
+    )
+    return next(name for name in candidates if not (tier_dir / name).exists())
 
 
 def _modules_in_tier(repo_root: Path, repo: Repo) -> list[Path]:

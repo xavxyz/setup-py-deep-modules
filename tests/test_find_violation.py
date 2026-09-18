@@ -9,6 +9,8 @@ therefore does not know to be well-formed.
 
 from __future__ import annotations
 
+import shutil
+
 from conftest import RepoBuilder
 
 #: A package with a private helper behind a public function, which is the shape
@@ -79,8 +81,10 @@ def test_a_private_module_is_preferred_over_a_private_name(user_repo: RepoBuilde
     assert violated.mentions(violation["expected_mention"]), violated.output
 
 
-def test_a_repo_with_no_private_names_is_told_to_scaffold(user_repo: RepoBuilder) -> None:
-    """The greenfield case, which is what the example package is really for."""
+def test_a_greenfield_proof_leaves_no_scaffold_behind(user_repo: RepoBuilder) -> None:
+    """The greenfield case: a proof scaffold is written only to give the proof
+    something to go red on, so like the appended import it is removed once the
+    check is green again -- and the check stays green with it gone."""
     repo = user_repo("src")
     configured = repo.configure()
     assert configured.passed, configured.output
@@ -88,6 +92,8 @@ def test_a_repo_with_no_private_names_is_told_to_scaffold(user_repo: RepoBuilder
     violation = repo.violation()
     assert not violation["found"]
     assert "scaffold" in violation["next_step"]
+    removal = "rm -rf src/acme_widgets/billing"
+    assert removal in violation["next_step"], violation["next_step"]
 
     scaffolded = repo.scaffold()
     assert scaffolded.passed, scaffolded.output
@@ -98,6 +104,40 @@ def test_a_repo_with_no_private_names_is_told_to_scaffold(user_repo: RepoBuilder
     violated = repo.check()
     assert not violated.passed, violated.output
     assert violated.mentions(after["expected_mention"]), violated.output
+
+    repo.remove(after["target_file"], after["import_line"])
+    reverted = repo.check()
+    assert reverted.passed, reverted.output
+
+    shutil.rmtree(repo.root / removal.removeprefix("rm -rf "))
+    assert not repo.exists("src/acme_widgets/billing")
+    removed = repo.check()
+    assert removed.passed, removed.output
+    cycles = repo.check_cycles()
+    assert cycles.passed, cycles.output
+
+
+def test_the_proof_scaffold_never_takes_the_name_of_a_real_package(
+    user_repo: RepoBuilder,
+) -> None:
+    """The removal ``next_step`` names is an ``rm -rf``, so it must point at the
+    directory ``scaffold`` will write -- never at a package the repo already has."""
+    repo = user_repo("src", files={
+        "src/acme_widgets/billing/__init__.py": '"""Billing, written by the user."""\n',
+    })
+    configured = repo.configure()
+    assert configured.passed, configured.output
+
+    violation = repo.violation()
+    assert not violation["found"]
+    assert "rm -rf src/acme_widgets/billing." not in violation["next_step"]
+    assert "rm -rf src/acme_widgets/billing " not in violation["next_step"]
+
+    name = violation["next_step"].split("scaffold --name ")[1].split("`")[0]
+    scaffolded = repo.scaffold("--name", name)
+    assert scaffolded.passed, scaffolded.output
+    assert f"rm -rf src/acme_widgets/{name}." in violation["next_step"]
+    assert repo.exists("src/acme_widgets/billing/__init__.py")
 
 
 def test_the_import_never_lands_inside_the_package_it_violates(

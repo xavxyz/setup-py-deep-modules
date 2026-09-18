@@ -107,7 +107,7 @@ Any private name in any package is a valid violation, so use one the repo alread
 python3 "$SETUP" find-violation
 ```
 
-JSON: an `import_line`, the `target_file` to put it in, and the `expected_mention` the report should come back with. It searches every package at the tier, and the loose modules beside them. Where `found` is false the repo keeps nothing behind a public surface yet — the greenfield case the example package is really for — so run step 4's `scaffold` and ask again.
+JSON: an `import_line`, the `target_file` to put it in, and the `expected_mention` the report should come back with. It searches every package at the tier, and the loose modules beside them. Where `found` is false the repo keeps nothing behind a public surface yet, so there is nothing to prove the check on. Run the `scaffold --name …` that `next_step` gives, and ask again: the package it writes is a **proof scaffold**, not a worked example. The user did not choose it, so it is part of the proof exactly like the appended import, and it goes once the check is green again — `next_step` names the `rm -rf`, with a name no package of theirs already has. Its "copy its shape" line is not one to relay. If they already took the worked example in step 4, `find-violation` finds its private names and there is no proof scaffold.
 
 ```sh
 <check_command>          # green
@@ -115,6 +115,8 @@ echo "<import_line>" >> <target_file>
 <check_command>          # red, naming <expected_mention>
 # revert the line
 <check_command>          # green again
+rm -rf <proof scaffold>  # only if you wrote one for the proof
+<check_command>          # still green, with it gone
 <cycle_command>
 ```
 
@@ -122,7 +124,7 @@ Track your own import by name through the cycle rather than the exit code. **On 
 
 If red never arrives, stop here and say so plainly. The usual causes are wrong source roots, tach not on the path you invoked, or an edited module outside the configured tier.
 
-**Done when:** you have seen the check name your import, and go green again once it is gone.
+**Done when:** you have seen the check name your import, and go green again once it is gone — and no proof scaffold is left behind.
 
 ### 6. Document
 
@@ -136,6 +138,6 @@ Writes the convention doc inside the distribution package, and a one-line pointe
 
 ### Report
 
-What was detected, what was installed and written, **that you watched the check go red on a violation and green again afterwards**, any pre-existing violations, the two check commands, and — if they took it — that the example package is theirs to copy or delete.
+What was detected, what was installed and written, **that you watched the check go red on a violation and green again afterwards**, any pre-existing violations, the two check commands, and — if they took it in step 4 — that the worked example is theirs to copy or delete. If step 5 wrote a proof scaffold instead, say that it was written only for the proof and removed afterwards, so the target repository has no example package in it.
 
 Then check the working tree for this skill's own install files: `.agents/skills/setup-py-deep-modules/`, a `.claude/skills/setup-py-deep-modules` link, and a `skills-lock.json` pinning this skill. A project-level install leaves them there, and nothing about them belongs to the target repository. If any are present, name them and tell the user to leave them out of the commit. Do not delete them or add them to `.gitignore`: this skill did not write them, so they are not its to remove.
